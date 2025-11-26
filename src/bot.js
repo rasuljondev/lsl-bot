@@ -15,6 +15,56 @@ app.use(express.json());
 // Store chat ID (will be set from first message)
 let chatId = null;
 
+// Handle /start command
+bot.command('start', async (ctx) => {
+    try {
+        // Store chat ID from first command
+        if (!chatId) {
+            chatId = ctx.chat.id;
+            console.log(`Chat ID set to: ${chatId}`);
+            // Initialize scheduler now that we have chat ID
+            initScheduler(bot, chatId);
+        }
+        
+        const welcomeMessage = `👋 Assalomu alaykum! LSL Davomad Botiga xush kelibsiz!
+
+📋 Bot haqida:
+Bu bot maktab davomadini avtomatik ravishda yig'ish va hisoblash uchun yaratilgan.
+
+📝 Davomad yuborish formati:
+<Sinf nomi> <kelganlar soni>/<jami o'quvchilar soni>
+<O'quvchi 1>
+<O'quvchi 2>
+...
+
+Misol:
+6A 21/18
+
+Abubakr Valijanov
+Alisher Oripov
+Bekzod Qodirov
+
+⏰ Faol vaqt: 08:00 - 16:00 (Toshkent vaqti)
+
+📊 Bot avtomatik ravishda:
+• 09:15 da kunlik hisobot yuboradi
+• 09:30, 09:45, 10:00 da eslatmalar yuboradi
+• 16:00 da kunlik faoliyatni yakunlaydi
+
+✅ Kechikkan o'quvchilar uchun:
+<Sinf> <Ism> keldi  - o'quvchi keldi
+<Sinf> <Ism> ketdi  - o'quvchi ketdi
+
+Misol: 9A Bobur keldi
+
+Qo'llab-quvvatlash uchun: @rasuljondev`;
+
+        await ctx.reply(welcomeMessage);
+    } catch (error) {
+        console.error('Error handling /start command:', error);
+    }
+});
+
 // Handle incoming messages
 bot.on('message', async (ctx) => {
     try {
