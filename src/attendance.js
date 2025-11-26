@@ -2,16 +2,30 @@ import { upsertAttendance, getClassTotalStudents, getTodayAttendance } from './d
 import { config } from './config.js';
 
 /**
- * Parse attendance message format: <ClassName> <presentCount>/<totalCount> <Student1> <Student2> ...
+ * Parse attendance message format: 
+ * Single line: <ClassName> <presentCount>/<totalCount> <Student1> <Student2> ...
+ * Multi-line: <ClassName> <presentCount>/<totalCount>
+ *             <Student1>
+ *             <Student2>
+ *             ...
  * Example: "9A 30/27 Ali Olimov Bobur Salamov Bek Oripov"
+ * Or: "6A 21/18\nAbubakr Valijanov\nAlisher Oripov\nBekzod Qodirov"
  */
 export function parseAttendanceMessage(text) {
-    // Remove extra spaces and trim
-    text = text.trim().replace(/\s+/g, ' ');
+    // Trim and normalize line breaks
+    text = text.trim();
     
-    // Match pattern: class name, numbers, optional student names
+    // Split into lines
+    const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+    
+    if (lines.length === 0) {
+        return null;
+    }
+    
+    // First line should contain class name and numbers
+    const firstLine = lines[0];
     const pattern = /^([A-Z0-9]+)\s+(\d+)\/(\d+)(?:\s+(.+))?$/i;
-    const match = text.match(pattern);
+    const match = firstLine.match(pattern);
     
     if (!match) {
         return null;
@@ -20,14 +34,26 @@ export function parseAttendanceMessage(text) {
     const className = match[1].toUpperCase();
     const presentCount = parseInt(match[2], 10);
     const totalCount = parseInt(match[3], 10);
-    const studentNamesText = match[4] || '';
     
-    // Parse student names (split by spaces, but handle multi-word names)
-    // For now, simple split - can be improved if needed
-    const studentNames = studentNamesText
-        .trim()
-        .split(/\s+/)
-        .filter(name => name.length > 0);
+    // Collect student names
+    let studentNames = [];
+    
+    // If there are names on the first line (single-line format)
+    if (match[4]) {
+        studentNames = match[4]
+            .trim()
+            .split(/\s+/)
+            .filter(name => name.length > 0);
+    }
+    
+    // If there are additional lines (multi-line format), add those names
+    // Skip first line as it's already processed
+    for (let i = 1; i < lines.length; i++) {
+        const name = lines[i].trim();
+        if (name.length > 0) {
+            studentNames.push(name);
+        }
+    }
     
     return {
         className,
