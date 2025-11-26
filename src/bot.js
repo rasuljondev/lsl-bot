@@ -43,7 +43,7 @@ Bu bot maktab davomadini avtomatik ravishda yig'ish va hisoblash uchun yaratilga
 ...
 
 Misol:
-6A 18/21
+6A 21/18
 
 Abubakr Valijanov
 Alisher Oripov
