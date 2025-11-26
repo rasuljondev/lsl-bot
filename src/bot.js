@@ -162,10 +162,12 @@ app.post(`/webhook/${config.botToken}`, async (req, res) => {
 
 // Test endpoint to verify webhook is accessible
 app.get(`/webhook/${config.botToken}`, (req, res) => {
+    const baseUrl = config.webhookUrl ? config.webhookUrl.replace(/\/+$/, '') : 'not set';
     res.json({ 
         status: 'webhook endpoint active',
         message: 'Telegram will POST updates here',
-        webhookUrl: `${config.webhookUrl}/webhook/${config.botToken}`
+        webhookUrl: `${baseUrl}/webhook/${config.botToken}`,
+        note: 'Make sure WEBHOOK_URL environment variable is set correctly'
     });
 });
 
@@ -185,7 +187,9 @@ app.listen(PORT, HOST, () => {
     
     // If webhook URL is provided, set it up
     if (config.webhookUrl) {
-        const webhookUrl = `${config.webhookUrl}/webhook/${config.botToken}`;
+        // Remove trailing slash if present to avoid double slashes
+        const baseUrl = config.webhookUrl.replace(/\/+$/, '');
+        const webhookUrl = `${baseUrl}/webhook/${config.botToken}`;
         console.log(`Setting webhook to: ${webhookUrl}`);
         
         bot.telegram.setWebhook(webhookUrl)
