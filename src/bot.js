@@ -34,13 +34,13 @@ bot.command('start', async (ctx) => {
 Bu bot maktab davomadini avtomatik ravishda yig'ish va hisoblash uchun yaratilgan.
 
 📝 Davomad yuborish formati:
-<Sinf nomi> <kelganlar soni>/<jami o'quvchilar soni>
+<Sinf nomi> <jami o'quvchilar soni>/<kelganlar soni>
 <O'quvchi 1>
 <O'quvchi 2>
 ...
 
 Misol:
-6A 21/18
+6A 18/21
 
 Abubakr Valijanov
 Alisher Oripov

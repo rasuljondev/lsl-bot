@@ -32,8 +32,9 @@ export function parseAttendanceMessage(text) {
     }
     
     const className = match[1].toUpperCase();
-    const presentCount = parseInt(match[2], 10);
-    const totalCount = parseInt(match[3], 10);
+    // Format is: <class> <total>/<present>
+    const totalCount = parseInt(match[2], 10);
+    const presentCount = parseInt(match[3], 10);
     
     // Collect student names
     let studentNames = [];
@@ -96,7 +97,7 @@ export async function processAttendanceMessage(text, chatId, bot) {
     // Send confirmation
     await bot.telegram.sendMessage(
         chatId,
-        `✅ ${parsed.className} davomad qabul qilindi: ${parsed.presentCount}/${totalStudents}`
+        `✅ ${parsed.className} davomad qabul qilindi: ${totalStudents}/${parsed.presentCount}`
     );
     
     return true;
@@ -133,7 +134,7 @@ export async function updateAttendanceMessage(text, chatId, bot) {
         // Send update confirmation
         await bot.telegram.sendMessage(
             chatId,
-            `✅ ${parsed.className} yangilandi: ${parsed.presentCount}/${totalStudents}`
+            `✅ ${parsed.className} yangilandi: ${totalStudents}/${parsed.presentCount}`
         );
         
         return true;
