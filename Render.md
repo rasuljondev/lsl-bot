@@ -131,7 +131,7 @@ The bot should respond:
 
 1. Add the bot to your Telegram group
 2. Make the bot an admin (optional, for pinning messages)
-3. Test attendance submission during active hours (08:15 - 13:00)
+3. Test attendance submission during active hours (13:00 - 16:00)
 4. Monitor the first day to ensure reminders and summary work correctly
 
 ## Support

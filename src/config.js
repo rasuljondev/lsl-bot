@@ -27,22 +27,22 @@ export const config = {
     
     // Active hours (Asia/Tashkent time)
     activeHours: {
-        start: { hour: 8, minute: 15 },
-        end: { hour: 13, minute: 0 }
+        start: { hour: 13, minute: 0 },
+        end: { hour: 16, minute: 0 }
     },
     
-    // Reminder times (after 09:15)
+    // Reminder times (after summary time)
     reminderTimes: [
-        { hour: 9, minute: 30 },
-        { hour: 9, minute: 45 },
-        { hour: 10, minute: 0 }
+        { hour: 14, minute: 30 },
+        { hour: 14, minute: 45 },
+        { hour: 15, minute: 0 }
     ],
     
     // Summary time
-    summaryTime: { hour: 9, minute: 15 },
+    summaryTime: { hour: 14, minute: 15 },
     
     // End of day message time
-    endOfDayTime: { hour: 13, minute: 0 }
+    endOfDayTime: { hour: 16, minute: 0 }
 };
 
 // Validate required environment variables

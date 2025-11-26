@@ -109,10 +109,10 @@ The bot supports 18 fixed classes:
 
 ## Schedule
 
-- **Active Hours**: 08:15 - 13:00 (Asia/Tashkent)
-- **Reminders**: 09:30, 09:45, 10:00
-- **Daily Summary**: 09:15
-- **End of Day**: 13:00
+- **Active Hours**: 13:00 - 16:00 (Asia/Tashkent)
+- **Reminders**: 14:30, 14:45, 15:00
+- **Daily Summary**: 14:15
+- **End of Day**: 16:00
 
 ## Database Schema
 

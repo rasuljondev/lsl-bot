@@ -31,12 +31,12 @@ bot.on('message', async (ctx) => {
         return;
     }
     
-    // Check if within active hours (08:15 - 13:00)
+    // Check if within active hours (13:00 - 16:00)
     if (!isWithinActiveHours()) {
         const time = getTashkentTime();
         const { start, end } = config.activeHours;
         
-        // Check if it's exactly 13:00
+        // Check if it's exactly end of day time
         if (time.hour === end.hour && time.minute === end.minute) {
             // End of day message will be sent by scheduler
             return;
@@ -54,10 +54,14 @@ bot.on('message', async (ctx) => {
     }
     
     // Try to parse as late update (keldi/ketdi)
-    // Only process after 09:15 and until 13:00
+    // Only process after summary time (14:15) and until 16:00
     const time = getTashkentTime();
-    const afterSummary = (time.hour > 9) || (time.hour === 9 && time.minute >= 15);
-    const beforeEndOfDay = time.hour < 13;
+    const summaryHour = config.summaryTime.hour;
+    const summaryMinute = config.summaryTime.minute;
+    const endHour = config.endOfDayTime.hour;
+    
+    const afterSummary = (time.hour > summaryHour) || (time.hour === summaryHour && time.minute >= summaryMinute);
+    const beforeEndOfDay = time.hour < endHour;
     
     if (afterSummary && beforeEndOfDay) {
         const lateUpdateProcessed = await processLateUpdate(messageText, ctx.chat.id, bot);
