@@ -3,22 +3,26 @@ import { config } from './config.js';
 
 /**
  * Parse late update message: <ClassName> <StudentName> keldi/ketdi
- * Example: "9A Jobirxon keldi" or "9A Jobirxon ketdi"
+ * Example: "9A Jobirxon keldi" or "9A Bilolxon Oripov keldi" or "9A Jobirxon ketdi"
  */
 export function parseLateUpdate(text) {
     text = text.trim().replace(/\s+/g, ' ');
     
-    // Match pattern: class name, student name, action (keldi/ketdi)
-    const pattern = /^([A-Z0-9]+)\s+(.+?)\s+(keldi|ketdi)$/i;
+    // Match pattern: class name, student name (can be multiple words), action (keldi/ketdi)
+    // Use greedy match for student name to capture multi-word names
+    const pattern = /^([A-Z0-9]+)\s+(.+)\s+(keldi|ketdi)$/i;
     const match = text.match(pattern);
     
     if (!match) {
+        console.log('Late update parse failed for:', text);
         return null;
     }
     
     const className = match[1].toUpperCase();
     const studentName = match[2].trim();
     const action = match[3].toLowerCase();
+    
+    console.log('Late update parsed:', { className, studentName, action });
     
     return {
         className,
