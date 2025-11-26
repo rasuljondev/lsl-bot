@@ -1,0 +1,25 @@
+{
+  "name": "lsl-bot",
+  "version": "1.0.0",
+  "description": "Telegram Attendance Bot for LSL School",
+  "main": "src/bot.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/bot.js",
+    "dev": "node --watch src/bot.js"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "attendance"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "telegraf": "^4.15.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "node-cron": "^3.0.3",
+    "dotenv": "^16.3.1"
+  }
+}
+
