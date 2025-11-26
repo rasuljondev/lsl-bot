@@ -43,7 +43,7 @@ This guide will help you deploy the Telegram Attendance Bot to Render's free tie
    - **Branch**: `main` (or your default branch)
    - **Root Directory**: Leave empty (root of repo)
    - **Runtime**: `Node`
-   - **Build Command**: Leave empty (Render auto-detects)
+   - **Build Command**: `npm install`
    - **Start Command**: `npm start`
 5. Click "Create Web Service"
 
