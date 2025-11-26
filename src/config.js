@@ -46,7 +46,7 @@ export const config = {
     
     // Owner and group configuration
     ownerUserId: 7348523493,
-    allowedGroupId: -2194713771
+    allowedGroupId: -1002194713771
 };
 
 // Validate required environment variables
