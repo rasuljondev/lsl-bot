@@ -15,9 +15,11 @@ app.use(express.json());
 // Store chat ID (will be set from first message)
 let chatId = null;
 
-// Handle /start command
+// Handle /start command (works anytime, not restricted by active hours)
 bot.command('start', async (ctx) => {
     try {
+        console.log('/start command received from chat:', ctx.chat.id);
+        
         // Store chat ID from first command
         if (!chatId) {
             chatId = ctx.chat.id;
@@ -60,8 +62,15 @@ Misol: 9A Bobur keldi
 Qo'llab-quvvatlash uchun: @rasuljondev`;
 
         await ctx.reply(welcomeMessage);
+        console.log('/start command response sent successfully');
     } catch (error) {
         console.error('Error handling /start command:', error);
+        console.error('Error stack:', error.stack);
+        try {
+            await ctx.reply('Xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
+        } catch (replyError) {
+            console.error('Error sending error message:', replyError);
+        }
     }
 });
 
@@ -141,13 +150,23 @@ bot.on('message', async (ctx) => {
 // Webhook endpoint for Render
 app.post(`/webhook/${config.botToken}`, async (req, res) => {
     try {
-        console.log('Webhook received:', JSON.stringify(req.body, null, 2));
+        console.log('Webhook received - Update type:', req.body?.update_id, 'Message:', req.body?.message?.text);
         await bot.handleUpdate(req.body);
         res.sendStatus(200);
     } catch (error) {
         console.error('Error handling webhook update:', error);
+        console.error('Error stack:', error.stack);
         res.status(200).send('OK'); // Still return 200 to Telegram
     }
+});
+
+// Test endpoint to verify webhook is accessible
+app.get(`/webhook/${config.botToken}`, (req, res) => {
+    res.json({ 
+        status: 'webhook endpoint active',
+        message: 'Telegram will POST updates here',
+        webhookUrl: `${config.webhookUrl}/webhook/${config.botToken}`
+    });
 });
 
 // Health check endpoint
@@ -166,9 +185,22 @@ app.listen(PORT, HOST, () => {
     
     // If webhook URL is provided, set it up
     if (config.webhookUrl) {
-        bot.telegram.setWebhook(`${config.webhookUrl}/webhook/${config.botToken}`)
-            .then(() => console.log('Webhook set successfully'))
-            .catch(err => console.error('Error setting webhook:', err));
+        const webhookUrl = `${config.webhookUrl}/webhook/${config.botToken}`;
+        console.log(`Setting webhook to: ${webhookUrl}`);
+        
+        bot.telegram.setWebhook(webhookUrl)
+            .then(() => {
+                console.log('Webhook set successfully');
+                // Verify webhook info
+                return bot.telegram.getWebhookInfo();
+            })
+            .then((info) => {
+                console.log('Webhook info:', JSON.stringify(info, null, 2));
+            })
+            .catch(err => {
+                console.error('Error setting webhook:', err);
+                console.error('Error details:', err.response?.data || err.message);
+            });
     } else {
         console.log('Webhook URL not provided. Using long-polling mode.');
         // For local development, use long-polling
