@@ -59,7 +59,7 @@ Bekzod Qodirov
 
 Misol: 9A Bobur keldi
 
-Qo'llab-quvvatlash uchun: @rasuljondev`;
+Qo'llab-quvvatlash uchun: @rasuljon_developer`;
 
         await ctx.reply(welcomeMessage);
         console.log('/start command response sent successfully');
