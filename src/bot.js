@@ -27,8 +27,72 @@ bot.command('start', async (ctx) => {
             return;
         }
         
-        // Check if user is already authorized
         const userId = ctx.from.id;
+        const isOwnerUser = isOwner(userId);
+        
+        // Owner/admin gets special greeting with admin buttons
+        if (isOwnerUser) {
+            // Auto-approve owner if not already authorized
+            const isAuthorized = await isUserAuthorized(userId);
+            if (!isAuthorized) {
+                // Auto-approve owner
+                await approveUser(userId, userId);
+            }
+            
+            const adminMessage = `👋 Assalomu alaykum! LSL Davomad Bot - Admin Panel
+
+🔐 Siz botning egasiz va barcha admin funksiyalarga ega ekansiz.
+
+📋 Bot haqida:
+Bu bot maktab davomadini avtomatik ravishda yig'ish va hisoblash uchun yaratilgan.
+
+📝 Davomad yuborish formati:
+<Sinf nomi> <jami o'quvchilar soni>/<kelganlar soni>
+<O'quvchi 1>
+<O'quvchi 2>
+...
+
+Misol:
+6A 21/18
+
+Abubakr Valijanov
+Alisher Oripov
+Bekzod Qodirov
+
+⏰ Faol vaqt: 08:00 - 16:00 (Toshkent vaqti)
+
+📊 Bot avtomatik ravishda:
+• 09:15 da kunlik hisobot yuboradi
+• 09:30, 09:45, 10:00 da eslatmalar yuboradi
+• 16:00 da kunlik faoliyatni yakunlaydi
+
+✅ Kechikkan o'quvchilar uchun:
+<Sinf> <Ism> keldi  - o'quvchi keldi
+<Sinf> <Ism> ketdi  - o'quvchi ketdi
+
+Misol: 9A Bobur keldi
+
+🔧 Admin buyruqlar:
+/cleandata - Bugungi ma'lumotlarni tozalash
+/report daily - Kunlik hisobot
+/report weekly - Haftalik hisobot
+/report monthly - Oylik hisobot
+
+Qo'llab-quvvatlash uchun: @rasuljon_developer`;
+
+            const adminKeyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('🗑️ Bugungi ma\'lumotlarni tozalash', 'admin_cleandata')],
+                [Markup.button.callback('📊 Kunlik hisobot', 'admin_report_daily')],
+                [Markup.button.callback('📈 Haftalik hisobot', 'admin_report_weekly')],
+                [Markup.button.callback('📉 Oylik hisobot', 'admin_report_monthly')]
+            ]);
+            
+            await ctx.reply(adminMessage, adminKeyboard);
+            console.log('/start command response sent successfully (admin)');
+            return;
+        }
+        
+        // Regular users
         const isAuthorized = await isUserAuthorized(userId);
         
         const welcomeMessage = `👋 Assalomu alaykum! LSL Davomad Botiga xush kelibsiz!
@@ -153,6 +217,63 @@ bot.on('callback_query', async (ctx) => {
                 await ctx.reply(`❌ Foydalanuvchi rad etildi.`);
                 await bot.telegram.sendMessage(result.chatId, 
                     '❌ Sizning ruxsat so\'rovingiz rad etildi.');
+            } else {
+                await ctx.reply(`❌ ${result.message}`);
+            }
+        }
+        
+        // Admin actions via buttons
+        if (data === 'admin_cleandata') {
+            if (!isOwner(userId)) {
+                await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
+                return;
+            }
+            
+            const result = await cleanTodayData();
+            await ctx.reply(result.success ? '✅ Bugungi ma\'lumotlar tozalandi.' : `❌ ${result.message}`);
+        }
+        
+        if (data === 'admin_report_daily') {
+            if (!isOwner(userId)) {
+                await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
+                return;
+            }
+            
+            const result = await generateDailyReport();
+            if (result.success) {
+                await ctx.reply(result.report);
+            } else {
+                await ctx.reply(`❌ ${result.message}`);
+            }
+        }
+        
+        if (data === 'admin_report_weekly') {
+            if (!isOwner(userId)) {
+                await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
+                return;
+            }
+            
+            const today = new Date();
+            const weekAgo = new Date(today);
+            weekAgo.setDate(today.getDate() - 7);
+            const result = await generateWeeklyReport(weekAgo.toISOString().split('T')[0], today.toISOString().split('T')[0]);
+            if (result.success) {
+                await ctx.reply(result.report);
+            } else {
+                await ctx.reply(`❌ ${result.message}`);
+            }
+        }
+        
+        if (data === 'admin_report_monthly') {
+            if (!isOwner(userId)) {
+                await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
+                return;
+            }
+            
+            const today = new Date();
+            const result = await generateMonthlyReport(today.getMonth() + 1, today.getFullYear());
+            if (result.success) {
+                await ctx.reply(result.report);
             } else {
                 await ctx.reply(`❌ ${result.message}`);
             }
