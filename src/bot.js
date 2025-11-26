@@ -20,22 +20,38 @@ let chatId = null;
 // Handle /start command (works anytime, not restricted by active hours)
 bot.command('start', async (ctx) => {
     try {
-        console.log('/start command received from chat:', ctx.chat.id, 'user:', ctx.from.id);
+        const chatType = ctx.chat.type;
+        const chatIdReceived = ctx.chat.id;
+        const userId = ctx.from.id;
         
-        // Check if it's a group (groups don't need /start)
-        if (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
+        console.log('='.repeat(50));
+        console.log('/start command received:');
+        console.log(`  Chat Type: ${chatType}`);
+        console.log(`  Chat ID: ${chatIdReceived}`);
+        console.log(`  Expected Group ID: ${config.allowedGroupId}`);
+        console.log(`  User ID: ${userId}`);
+        console.log(`  Is Owner: ${isOwner(userId)}`);
+        console.log('='.repeat(50));
+        
+        // Check if it's a group - allow /start in groups for debugging
+        if (chatType === 'group' || chatType === 'supergroup') {
+            console.log('⚠️ /start received in group - showing group info');
+            await ctx.reply(`📊 Group Info:\nChat ID: ${chatIdReceived}\nExpected: ${config.allowedGroupId}\nMatch: ${chatIdReceived === config.allowedGroupId ? '✅' : '❌'}`);
             return;
         }
         
-        const userId = ctx.from.id;
         const isOwnerUser = isOwner(userId);
+        
+        console.log(`/start - User ID: ${userId}, Is Owner: ${isOwnerUser}, Chat Type: ${ctx.chat.type}, Chat ID: ${ctx.chat.id}`);
         
         // Owner/admin gets special greeting with admin buttons
         if (isOwnerUser) {
             // Auto-approve owner if not already authorized
             const isAuthorized = await isUserAuthorized(userId);
+            console.log(`Owner authorization check: ${isAuthorized}`);
             if (!isAuthorized) {
                 // Auto-approve owner
+                console.log('Auto-approving owner...');
                 await approveUser(userId, userId);
             }
             
@@ -43,42 +59,11 @@ bot.command('start', async (ctx) => {
 
 🔐 Siz botning egasiz va barcha admin funksiyalarga ega ekansiz.
 
-📋 Bot haqida:
-Bu bot maktab davomadini avtomatik ravishda yig'ish va hisoblash uchun yaratilgan.
-
-📝 Davomad yuborish formati:
-<Sinf nomi> <jami o'quvchilar soni>/<kelganlar soni>
-<O'quvchi 1>
-<O'quvchi 2>
-...
-
-Misol:
-6A 21/18
-
-Abubakr Valijanov
-Alisher Oripov
-Bekzod Qodirov
+📋 Bot maktab davomadini avtomatik yig'ish va hisoblash uchun yaratilgan.
 
 ⏰ Faol vaqt: 08:00 - 16:00 (Toshkent vaqti)
 
-📊 Bot avtomatik ravishda:
-• 09:15 da kunlik hisobot yuboradi
-• 09:30, 09:45, 10:00 da eslatmalar yuboradi
-• 16:00 da kunlik faoliyatni yakunlaydi
-
-✅ Kechikkan o'quvchilar uchun:
-<Sinf> <Ism> keldi  - o'quvchi keldi
-<Sinf> <Ism> ketdi  - o'quvchi ketdi
-
-Misol: 9A Bobur keldi
-
-🔧 Admin buyruqlar:
-/cleandata - Bugungi ma'lumotlarni tozalash
-/report daily - Kunlik hisobot
-/report weekly - Haftalik hisobot
-/report monthly - Oylik hisobot
-
-Qo'llab-quvvatlash uchun: @rasuljon_developer`;
+🔧 Admin funksiyalar:`;
 
             const adminKeyboard = Markup.inlineKeyboard([
                 [Markup.button.callback('🗑️ Bugungi ma\'lumotlarni tozalash', 'admin_cleandata')],
@@ -94,42 +79,18 @@ Qo'llab-quvvatlash uchun: @rasuljon_developer`;
         
         // Regular users
         const isAuthorized = await isUserAuthorized(userId);
+        console.log(`Regular user authorization check: ${isAuthorized}`);
         
         const welcomeMessage = `👋 Assalomu alaykum! LSL Davomad Botiga xush kelibsiz!
 
-📋 Bot haqida:
-Bu bot maktab davomadini avtomatik ravishda yig'ish va hisoblash uchun yaratilgan.
-
-📝 Davomad yuborish formati:
-<Sinf nomi> <jami o'quvchilar soni>/<kelganlar soni>
-<O'quvchi 1>
-<O'quvchi 2>
-...
-
-Misol:
-6A 21/18
-
-Abubakr Valijanov
-Alisher Oripov
-Bekzod Qodirov
+📋 Bot maktab davomadini avtomatik yig'ish va hisoblash uchun yaratilgan.
 
 ⏰ Faol vaqt: 08:00 - 16:00 (Toshkent vaqti)
 
-📊 Bot avtomatik ravishda:
-• 09:15 da kunlik hisobot yuboradi
-• 09:30, 09:45, 10:00 da eslatmalar yuboradi
-• 16:00 da kunlik faoliyatni yakunlaydi
-
-✅ Kechikkan o'quvchilar uchun:
-<Sinf> <Ism> keldi  - o'quvchi keldi
-<Sinf> <Ism> ketdi  - o'quvchi ketdi
-
-Misol: 9A Bobur keldi
-
-Qo'llab-quvvatlash uchun: @rasuljon_developer`;
+✅ Ruxsat olgan foydalanuvchilar barcha yangilanishlarni avtomatik olasiz.`;
 
         if (isAuthorized) {
-            await ctx.reply(welcomeMessage + '\n\n✅ Sizga ruxsat berilgan. Barcha yangilanishlarni avtomatik olasiz.');
+            await ctx.reply(welcomeMessage + '\n\n✅ Sizga ruxsat berilgan.');
         } else {
             // Show "Get Permission" button
             const keyboard = Markup.inlineKeyboard([
@@ -327,37 +288,56 @@ bot.command('report', async (ctx) => {
 // Handle incoming messages
 bot.on('message', async (ctx) => {
     try {
-        console.log('Message received:', ctx.message.text, 'from chat:', ctx.chat.id);
+        const chatType = ctx.chat.type;
+        const chatIdReceived = ctx.chat.id;
+        const messageText = ctx.message?.text || '';
+        const userId = ctx.from?.id;
+        const username = ctx.from?.username || ctx.from?.first_name || 'Unknown';
+        
+        console.log('='.repeat(50));
+        console.log('Message received:');
+        console.log(`  Chat Type: ${chatType}`);
+        console.log(`  Chat ID: ${chatIdReceived}`);
+        console.log(`  Expected Group ID: ${config.allowedGroupId}`);
+        console.log(`  User ID: ${userId}`);
+        console.log(`  Username: ${username}`);
+        console.log(`  Message: ${messageText.substring(0, 50)}...`);
+        console.log('='.repeat(50));
         
         // Check if it's a group - verify authorization
-        if (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
-            console.log(`Group message from chat ID: ${ctx.chat.id}, Expected: ${config.allowedGroupId}`);
-            if (!isGroupAuthorized(ctx.chat.id)) {
-                console.log(`Unauthorized group ${ctx.chat.id}, ignoring message. Expected group ID: ${config.allowedGroupId}`);
+        if (chatType === 'group' || chatType === 'supergroup') {
+            console.log(`🔍 Checking group authorization...`);
+            console.log(`  Received Group ID: ${chatIdReceived}`);
+            console.log(`  Expected Group ID: ${config.allowedGroupId}`);
+            console.log(`  Match: ${chatIdReceived === config.allowedGroupId}`);
+            
+            if (!isGroupAuthorized(chatIdReceived)) {
+                console.log(`❌ UNAUTHORIZED GROUP - Ignoring message`);
+                console.log(`  Group ID ${chatIdReceived} does not match expected ${config.allowedGroupId}`);
                 return;
             }
             
-            console.log(`✅ Authorized group confirmed: ${ctx.chat.id}`);
+            console.log(`✅ AUTHORIZED GROUP CONFIRMED`);
             
             // Store chat ID from first message (for scheduler)
             if (!chatId) {
-                chatId = ctx.chat.id;
-                console.log(`Chat ID set to: ${chatId}`);
+                chatId = chatIdReceived;
+                console.log(`📌 Chat ID stored for scheduler: ${chatId}`);
                 // Initialize scheduler now that we have chat ID
                 initScheduler(bot, chatId);
             }
         } else {
             // For private messages, check if user is authorized
-            const userId = ctx.from.id;
+            console.log(`🔍 Checking user authorization for private message...`);
             const isAuthorized = await isUserAuthorized(userId);
+            console.log(`  User ${userId} authorized: ${isAuthorized}`);
             
             if (!isAuthorized) {
+                console.log(`❌ User not authorized - ignoring message`);
                 // User not authorized, ignore message (they should use /start)
                 return;
             }
         }
-        
-        const messageText = ctx.message.text;
         
         if (!messageText) {
             console.log('Message has no text, ignoring');
