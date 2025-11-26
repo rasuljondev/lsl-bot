@@ -85,9 +85,12 @@ app.get('/health', (req, res) => {
 });
 
 // Start server
-const PORT = config.port;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// Bind to 0.0.0.0 so Render can detect the port
+const PORT = config.port || process.env.PORT || 3000;
+const HOST = '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+    console.log(`Server running on ${HOST}:${PORT}`);
     console.log(`Webhook URL: /webhook/${config.botToken}`);
     
     // If webhook URL is provided, set it up
