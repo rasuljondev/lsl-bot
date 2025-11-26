@@ -210,10 +210,13 @@ bot.on('message', async (ctx) => {
         
         // Check if it's a group - verify authorization
         if (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
+            console.log(`Group message from chat ID: ${ctx.chat.id}, Expected: ${config.allowedGroupId}`);
             if (!isGroupAuthorized(ctx.chat.id)) {
-                console.log(`Unauthorized group ${ctx.chat.id}, ignoring message`);
+                console.log(`Unauthorized group ${ctx.chat.id}, ignoring message. Expected group ID: ${config.allowedGroupId}`);
                 return;
             }
+            
+            console.log(`✅ Authorized group confirmed: ${ctx.chat.id}`);
             
             // Store chat ID from first message (for scheduler)
             if (!chatId) {
@@ -240,7 +243,7 @@ bot.on('message', async (ctx) => {
             return;
         }
         
-        // Check if within active hours (08:00 - 16:00)
+        // Check if within active hours (08:00 - 16:00) for data recording
         if (!isWithinActiveHours()) {
             const time = getTashkentTime();
             const { start, end } = config.activeHours;
@@ -253,7 +256,15 @@ bot.on('message', async (ctx) => {
                 return;
             }
             
-            // Ignore messages outside active hours
+            // Outside active hours - don't record data, but allow /start and other commands
+            // Only ignore attendance/late update messages
+            if (messageText.trim().match(/^[A-Z0-9]+\s+\d+\/\d+/i) || 
+                messageText.trim().match(/\s+(keldi|ketdi)$/i)) {
+                console.log('Attendance/late update message outside active hours - ignoring');
+                return;
+            }
+            
+            // Allow other messages (like /start, commands) to pass through
             return;
         }
         
