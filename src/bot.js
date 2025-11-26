@@ -1,10 +1,12 @@
-import { Telegraf } from 'telegraf';
+import { Telegraf, Markup } from 'telegraf';
 import express from 'express';
 import { config } from './config.js';
 import { isWithinActiveHours, getTashkentTime } from './database.js';
 import { updateAttendanceMessage } from './attendance.js';
 import { processLateUpdate } from './lateUpdates.js';
 import { initScheduler } from './scheduler.js';
+import { isGroupAuthorized, isUserAuthorized, requestUserAccess, approveUser, rejectUser } from './permissions.js';
+import { isOwner, cleanTodayData, generateDailyReport, generateWeeklyReport, generateMonthlyReport } from './admin.js';
 
 const bot = new Telegraf(config.botToken);
 const app = express();
@@ -18,15 +20,16 @@ let chatId = null;
 // Handle /start command (works anytime, not restricted by active hours)
 bot.command('start', async (ctx) => {
     try {
-        console.log('/start command received from chat:', ctx.chat.id);
+        console.log('/start command received from chat:', ctx.chat.id, 'user:', ctx.from.id);
         
-        // Store chat ID from first command
-        if (!chatId) {
-            chatId = ctx.chat.id;
-            console.log(`Chat ID set to: ${chatId}`);
-            // Initialize scheduler now that we have chat ID
-            initScheduler(bot, chatId);
+        // Check if it's a group (groups don't need /start)
+        if (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
+            return;
         }
+        
+        // Check if user is already authorized
+        const userId = ctx.from.id;
+        const isAuthorized = await isUserAuthorized(userId);
         
         const welcomeMessage = `👋 Assalomu alaykum! LSL Davomad Botiga xush kelibsiz!
 
@@ -61,7 +64,17 @@ Misol: 9A Bobur keldi
 
 Qo'llab-quvvatlash uchun: @rasuljon_developer`;
 
-        await ctx.reply(welcomeMessage);
+        if (isAuthorized) {
+            await ctx.reply(welcomeMessage + '\n\n✅ Sizga ruxsat berilgan. Barcha yangilanishlarni avtomatik olasiz.');
+        } else {
+            // Show "Get Permission" button
+            const keyboard = Markup.inlineKeyboard([
+                Markup.button.callback('🔐 Ruxsat olish', 'request_permission')
+            ]);
+            
+            await ctx.reply(welcomeMessage + '\n\n⚠️ Botdan foydalanish uchun ruxsat olishingiz kerak.', keyboard);
+        }
+        
         console.log('/start command response sent successfully');
     } catch (error) {
         console.error('Error handling /start command:', error);
@@ -74,17 +87,150 @@ Qo'llab-quvvatlash uchun: @rasuljon_developer`;
     }
 });
 
+// Handle callback queries (button clicks)
+bot.on('callback_query', async (ctx) => {
+    try {
+        await ctx.answerCbQuery();
+        const data = ctx.callbackQuery.data;
+        const userId = ctx.from.id;
+        
+        // Request permission button
+        if (data === 'request_permission') {
+            const username = ctx.from.username || ctx.from.first_name || 'Unknown';
+            const result = await requestUserAccess(userId, username, ctx.chat.id);
+            
+            if (result.success) {
+                // Send request to owner
+                const requestMessage = `🔔 Yangi ruxsat so'rovi\n\n` +
+                    `Foydalanuvchi: ${username}\n` +
+                    `ID: ${userId}\n` +
+                    `Chat ID: ${ctx.chat.id}`;
+                
+                const keyboard = Markup.inlineKeyboard([
+                    [Markup.button.callback('✅ Qabul qilish', `approve_${userId}`)],
+                    [Markup.button.callback('❌ Rad etish', `reject_${userId}`)]
+                ]);
+                
+                await bot.telegram.sendMessage(config.ownerUserId, requestMessage, keyboard);
+                await ctx.reply('✅ Ruxsat so\'rovi yuborildi. Tez orada javob olasiz.');
+            } else {
+                await ctx.reply(result.message === 'Request already pending' 
+                    ? '⏳ Ruxsat so\'rovi allaqachon yuborilgan. Kuting...'
+                    : '❌ Xatolik yuz berdi. Qayta urinib ko\'ring.');
+            }
+        }
+        
+        // Approve user
+        if (data.startsWith('approve_')) {
+            if (!isOwner(userId)) {
+                await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
+                return;
+            }
+            
+            const targetUserId = parseInt(data.replace('approve_', ''));
+            const result = await approveUser(targetUserId, userId);
+            
+            if (result.success) {
+                await ctx.reply(`✅ Foydalanuvchi ruxsat berildi.`);
+                await bot.telegram.sendMessage(result.chatId, 
+                    '✅ Ruxsat berildi! Endi siz barcha yangilanishlarni avtomatik olasiz.');
+            } else {
+                await ctx.reply(`❌ ${result.message}`);
+            }
+        }
+        
+        // Reject user
+        if (data.startsWith('reject_')) {
+            if (!isOwner(userId)) {
+                await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
+                return;
+            }
+            
+            const targetUserId = parseInt(data.replace('reject_', ''));
+            const result = await rejectUser(targetUserId, userId);
+            
+            if (result.success) {
+                await ctx.reply(`❌ Foydalanuvchi rad etildi.`);
+                await bot.telegram.sendMessage(result.chatId, 
+                    '❌ Sizning ruxsat so\'rovingiz rad etildi.');
+            } else {
+                await ctx.reply(`❌ ${result.message}`);
+            }
+        }
+    } catch (error) {
+        console.error('Error handling callback query:', error);
+    }
+});
+
+// Handle admin commands
+bot.command('cleandata', async (ctx) => {
+    if (!isOwner(ctx.from.id)) {
+        return;
+    }
+    
+    const result = await cleanTodayData();
+    await ctx.reply(result.success ? '✅ Bugungi ma\'lumotlar tozalandi.' : `❌ ${result.message}`);
+});
+
+bot.command('report', async (ctx) => {
+    if (!isOwner(ctx.from.id)) {
+        return;
+    }
+    
+    const args = ctx.message.text.split(' ');
+    const type = args[1] || 'daily';
+    
+    let result;
+    if (type === 'daily') {
+        result = await generateDailyReport();
+    } else if (type === 'weekly') {
+        const today = new Date();
+        const weekAgo = new Date(today);
+        weekAgo.setDate(today.getDate() - 7);
+        result = await generateWeeklyReport(weekAgo.toISOString().split('T')[0], today.toISOString().split('T')[0]);
+    } else if (type === 'monthly') {
+        const today = new Date();
+        result = await generateMonthlyReport(today.getMonth() + 1, today.getFullYear());
+    } else {
+        await ctx.reply('❌ Noto\'g\'ri format. /report daily|weekly|monthly');
+        return;
+    }
+    
+    if (result.success) {
+        await ctx.reply(result.report);
+    } else {
+        await ctx.reply(`❌ ${result.message}`);
+    }
+});
+
 // Handle incoming messages
 bot.on('message', async (ctx) => {
     try {
         console.log('Message received:', ctx.message.text, 'from chat:', ctx.chat.id);
         
-        // Store chat ID from first message
-        if (!chatId) {
-            chatId = ctx.chat.id;
-            console.log(`Chat ID set to: ${chatId}`);
-            // Initialize scheduler now that we have chat ID
-            initScheduler(bot, chatId);
+        // Check if it's a group - verify authorization
+        if (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
+            if (!isGroupAuthorized(ctx.chat.id)) {
+                console.log(`Unauthorized group ${ctx.chat.id}, ignoring message`);
+                return;
+            }
+            
+            // Store chat ID from first message (for scheduler)
+            if (!chatId) {
+                chatId = ctx.chat.id;
+                console.log(`Chat ID set to: ${chatId}`);
+                // Initialize scheduler now that we have chat ID
+                initScheduler(bot, chatId);
+            }
+        } else {
+            // For private messages, check if user is authorized
+            const userId = ctx.from.id;
+            const isAuthorized = await isUserAuthorized(userId);
+            
+            if (!isAuthorized) {
+                // User not authorized, ignore message (they should use /start)
+                return;
+            }
         }
         
         const messageText = ctx.message.text;

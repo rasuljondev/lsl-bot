@@ -1,5 +1,6 @@
 import { upsertAttendance, getClassTotalStudents, getTodayAttendance } from './database.js';
 import { config } from './config.js';
+import { notifyOnAttendanceUpdate } from './notifications.js';
 
 /**
  * Parse attendance message format: 
@@ -94,13 +95,16 @@ export async function processAttendanceMessage(text, chatId, bot) {
         parsed.studentNames
     );
     
-    // Send confirmation
-    await bot.telegram.sendMessage(
-        chatId,
-        `✅ ${parsed.className} davomad qabul qilindi: ${totalStudents}/${parsed.presentCount}`
-    );
-    
-    return true;
+        // Send confirmation
+        await bot.telegram.sendMessage(
+            chatId,
+            `✅ ${parsed.className} davomad qabul qilindi: ${totalStudents}/${parsed.presentCount}`
+        );
+        
+        // Notify authorized users
+        await notifyOnAttendanceUpdate(bot, parsed.className, totalStudents, parsed.presentCount, false);
+        
+        return true;
 }
 
 /**
@@ -136,6 +140,9 @@ export async function updateAttendanceMessage(text, chatId, bot) {
             chatId,
             `✅ ${parsed.className} yangilandi: ${totalStudents}/${parsed.presentCount}`
         );
+        
+        // Notify authorized users
+        await notifyOnAttendanceUpdate(bot, parsed.className, totalStudents, parsed.presentCount, true);
         
         return true;
     }

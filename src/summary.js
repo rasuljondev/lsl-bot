@@ -1,4 +1,6 @@
 import { calculateTotals, getAllTodayAttendance } from './database.js';
+import { notifyOnDailySummary } from './notifications.js';
+import { config } from './config.js';
 
 /**
  * Generate and send daily summary at 09:15
@@ -27,7 +29,7 @@ export async function sendDailySummary(chatId, bot) {
         }
     });
     
-    // Build summary message
+    // Build summary message for group
     let message = `📊 Bugungi davomad natijalari\n\n`;
     message += `Jami: ${totals.totalStudents} ta o'quvchidan ${totals.totalPresent} tasi keldi\n`;
     message += `Qolgan: ${totals.totalAbsent} ta o'quvchi\n`;
@@ -38,5 +40,25 @@ export async function sendDailySummary(chatId, bot) {
     }
     
     await bot.telegram.sendMessage(chatId, message);
+    
+    // Build summary for authorized users (different format)
+    const submittedClasses = records.map(r => ({
+        className: r.class_name,
+        total: r.total_students,
+        present: r.present_count
+    }));
+    
+    // Find missing classes
+    const missingClasses = config.classes.filter(className => 
+        !records.some(r => r.class_name === className)
+    );
+    
+    // Send to authorized users
+    await notifyOnDailySummary(bot, {
+        classes: submittedClasses,
+        missing: missingClasses,
+        totalStudents: totals.totalStudents,
+        totalPresent: totals.totalPresent
+    });
 }
 

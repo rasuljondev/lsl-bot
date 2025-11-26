@@ -1,5 +1,6 @@
 import { getTodayAttendance, upsertAttendance, calculateTotals } from './database.js';
 import { config } from './config.js';
+import { notifyOnAttendanceUpdate } from './notifications.js';
 
 /**
  * Parse late update message: <ClassName> <StudentName> keldi/ketdi
@@ -94,6 +95,9 @@ export async function processLateUpdate(text, chatId, bot) {
                    `Bugun jami ${totals.totalStudents} dan ${totals.totalPresent} kishi keldi`;
     
     await bot.telegram.sendMessage(chatId, message);
+    
+    // Notify authorized users about the update
+    await notifyOnAttendanceUpdate(bot, parsed.className, attendance.total_students, presentCount, true);
     
     return true;
 }

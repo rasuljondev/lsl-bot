@@ -42,7 +42,11 @@ export const config = {
     summaryTime: { hour: 9, minute: 15 },
     
     // End of day message time
-    endOfDayTime: { hour: 16, minute: 0 }
+    endOfDayTime: { hour: 16, minute: 0 },
+    
+    // Owner and group configuration
+    ownerUserId: 7348523493,
+    allowedGroupId: -2194713771
 };
 
 // Validate required environment variables
