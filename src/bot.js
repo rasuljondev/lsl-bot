@@ -36,7 +36,28 @@ bot.command('start', async (ctx) => {
         // Check if it's a group - allow /start in groups for debugging
         if (chatType === 'group' || chatType === 'supergroup') {
             console.log('⚠️ /start received in group - showing group info');
-            await ctx.reply(`📊 Group Info:\nChat ID: ${chatIdReceived}\nExpected: ${config.allowedGroupId}\nMatch: ${chatIdReceived === config.allowedGroupId ? '✅' : '❌'}`);
+            const match = chatIdReceived === config.allowedGroupId;
+            await ctx.reply(
+                `📊 Group Info:\n` +
+                `Chat ID: ${chatIdReceived}\n` +
+                `Expected: ${config.allowedGroupId}\n` +
+                `Match: ${match ? '✅' : '❌'}`
+            );
+            
+            if (match) {
+                const groupInstructions = `👋 Assalomu alaykum, o'qituvchilar!\n\n` +
+                    `🕗 Bot faqat 08:00 - 16:00 orasida ma'lumot qabul qiladi.\n` +
+                    `📝 Format:\n` +
+                    `<Sinf> <jami>/<kelgan>\n` +
+                    `<O'quvchi 1>\n` +
+                    `<O'quvchi 2>\n...\n` +
+                    `Misol:\n6A 21/18\nAli Karimov\nBobur Qodirov\n\n` +
+                    `✅ Yangi ma'lumot yuborilsa, eski ma'lumot avtomatik yangilanadi.\n` +
+                    `⏰ 09:15 da umumiy hisobot yuboriladi.`;
+                await ctx.reply(groupInstructions);
+            } else {
+                await ctx.reply('❌ Bu guruh ID si ruxsat etilmagan.');
+            }
             return;
         }
         
