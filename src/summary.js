@@ -96,12 +96,7 @@ export async function sendDailySummary(chatId, bot) {
         present: r.present_count
     }));
     
-    // Find missing classes
-    const missingClasses = config.classes.filter(className => 
-        !records.some(r => r.class_name === className)
-    );
-    
-    // Send to authorized users
+    // Send to authorized users (missingClasses already defined above)
     await notifyOnDailySummary(bot, {
         classes: submittedClasses,
         missing: missingClasses,
