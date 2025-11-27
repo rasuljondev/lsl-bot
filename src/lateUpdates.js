@@ -97,18 +97,13 @@ export async function processLateUpdate(text, chatId, bot) {
     // Calculate new totals
     const totals = await calculateTotals();
     
-    // Send confirmation message
+    // Send simple confirmation message to group (no full summary)
     const actionText = parsed.action === 'keldi' ? 'keldi' : 'ketdi';
-    const message = `${parsed.className} yangilandi: ${parsed.studentName} ${actionText}\n` +
-                   `Bugun jami ${totals.totalStudents} dan ${totals.totalPresent} kishi keldi`;
+    const message = `✅ ${parsed.className} yangilandi: ${parsed.studentName} ${actionText}`;
     
     await bot.telegram.sendMessage(chatId, message);
     
-    // Generate and send full summary
-    const fullSummary = await generateFullSummary();
-    await bot.telegram.sendMessage(chatId, fullSummary);
-    
-    // Notify authorized users about the update
+    // Notify authorized users with full info
     await notifyOnAttendanceUpdate(bot, parsed.className, attendance.total_students, presentCount, true);
     
     return true;

@@ -108,17 +108,13 @@ export async function processAttendanceMessage(text, chatId, bot) {
         parsed.studentNames
     );
     
-    // Send confirmation
+    // Send simple confirmation to group (no full summary)
     await bot.telegram.sendMessage(
         chatId,
         `✅ ${parsed.className} davomad qabul qilindi: ${totalStudents}/${parsed.presentCount}`
     );
     
-    // Generate and send full summary
-    const fullSummary = await generateFullSummary();
-    await bot.telegram.sendMessage(chatId, fullSummary);
-    
-    // Notify authorized users
+    // Notify authorized users with full info
     await notifyOnAttendanceUpdate(bot, parsed.className, totalStudents, parsed.presentCount, false);
     
     return true;
@@ -157,17 +153,13 @@ export async function updateAttendanceMessage(text, chatId, bot) {
             parsed.studentNames
         );
         
-        // Send update confirmation
+        // Send simple update confirmation to group (no full summary)
         await bot.telegram.sendMessage(
             chatId,
             `✅ ${parsed.className} yangilandi: ${totalStudents}/${parsed.presentCount}`
         );
         
-        // Generate and send full summary
-        const fullSummary = await generateFullSummary();
-        await bot.telegram.sendMessage(chatId, fullSummary);
-        
-        // Notify authorized users
+        // Notify authorized users with full info
         await notifyOnAttendanceUpdate(bot, parsed.className, totalStudents, parsed.presentCount, true);
         
         return true;

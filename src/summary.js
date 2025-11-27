@@ -51,7 +51,8 @@ export async function sendDailySummary(chatId, bot) {
     config.classes.forEach(className => {
         const record = recordsMap.get(className);
         if (record) {
-            summaryLines.push(`${className}: ${record.present_count}/${record.total_students}`);
+            // Format: total/present
+            summaryLines.push(`${className}: ${record.total_students}/${record.present_count}`);
             totalPresentCalc += record.present_count || 0;
             totalStudentsCalc += record.total_students || 0;
         } else {
@@ -59,35 +60,24 @@ export async function sendDailySummary(chatId, bot) {
         }
     });
     
-    // Check if all classes submitted
-    if (missingClasses.length === 0) {
-        // All classes submitted - send completion message with ordered classes
-        let completionMessage = `✅ Rahmat! Barcha sinflar davomad yubordi!\n\n` +
-            `📊 Bugungi davomad natijalari:\n\n`;
-        completionMessage += summaryLines.join('\n');
-        completionMessage += `\n\nJami: ${totalStudentsCalc}/${totalPresentCalc}`;
-        
-        if (absentList.length > 0) {
-            completionMessage += `\n\n❌ Kelmaganlar ro'yxati:\n`;
-            completionMessage += absentList.join('\n');
-        }
-        
-        completionMessage += `\n\n✅ Barcha sinflar davomad yubordi. Bot bugun ishini yakunladi va ertaga qaytadi.`;
-        
-        await bot.telegram.sendMessage(chatId, completionMessage);
-    } else {
-        // Not all classes submitted - send regular summary with ordered classes
-        let message = `📊 Bugungi davomad natijalari\n\n`;
-        message += summaryLines.join('\n');
-        message += `\n\nJami: ${totalStudentsCalc}/${totalPresentCalc}`;
-        
-        if (absentList.length > 0) {
-            message += `\n\n❌ Kelmaganlar ro'yxati:\n`;
-            message += absentList.join('\n');
-        }
-        
-        await bot.telegram.sendMessage(chatId, message);
+    // Always send full summary at scheduled times (9:15, 10:10, 11:05, 12:00)
+    // Bot keeps working even if all classes submitted
+    const totalAbsentCalc = totalStudentsCalc - totalPresentCalc;
+    let message = `📊 Bugungi davomad natijalari\n\n`;
+    message += summaryLines.join('\n');
+    message += `\n\nJami: ${totalStudentsCalc}/${totalPresentCalc}`;
+    
+    if (totalAbsentCalc > 0) {
+        message += `\nKelmaganlar: ${totalAbsentCalc}`;
     }
+    
+    if (missingClasses.length > 0) {
+        message += `\n\n📋 Topshirmagan sinflar: ${missingClasses.join(', ')}`;
+    } else {
+        message += `\n\n✅ Barcha sinflar davomad yubordi.`;
+    }
+    
+    await bot.telegram.sendMessage(chatId, message);
     
     // Build summary for authorized users (different format)
     const submittedClasses = records.map(r => ({
