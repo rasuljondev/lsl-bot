@@ -15,22 +15,28 @@ import { notifyOnAttendanceUpdate } from './notifications.js';
 export function parseAttendanceMessage(text) {
     // Trim and normalize line breaks
     text = text.trim();
+    console.log('Parsing attendance message:', text);
     
     // Split into lines
     const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
     
     if (lines.length === 0) {
+        console.log('No lines found in message');
         return null;
     }
     
     // First line should contain class name and numbers
     const firstLine = lines[0];
+    console.log('First line:', firstLine);
     const pattern = /^([A-Z0-9]+)\s+(\d+)\/(\d+)(?:\s+(.+))?$/i;
     const match = firstLine.match(pattern);
     
     if (!match) {
+        console.log('Pattern did not match first line');
         return null;
     }
+    
+    console.log('Pattern matched:', match);
     
     const className = match[1].toUpperCase();
     // Format is: <class> <total>/<present>

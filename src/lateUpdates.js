@@ -8,6 +8,7 @@ import { notifyOnAttendanceUpdate } from './notifications.js';
  */
 export function parseLateUpdate(text) {
     text = text.trim().replace(/\s+/g, ' ');
+    console.log('Parsing late update:', text);
     
     // Match pattern: class name, student name (can be multiple words), action (keldi/ketdi)
     // Use greedy match for student name to capture multi-word names
@@ -16,8 +17,11 @@ export function parseLateUpdate(text) {
     
     if (!match) {
         console.log('Late update parse failed for:', text);
+        console.log('Pattern expected: <ClassName> <StudentName> keldi/ketdi');
         return null;
     }
+    
+    console.log('Late update pattern matched:', match);
     
     const className = match[1].toUpperCase();
     const studentName = match[2].trim();

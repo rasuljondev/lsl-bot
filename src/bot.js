@@ -401,22 +401,12 @@ bot.on('message', async (ctx) => {
         }
         
         // Try to parse as late update (keldi/ketdi)
-        // Only process after summary time (09:15) and until 16:00
-        const time = getTashkentTime();
-        const summaryHour = config.summaryTime.hour;
-        const summaryMinute = config.summaryTime.minute;
-        const endHour = config.endOfDayTime.hour;
-        
-        const afterSummary = (time.hour > summaryHour) || (time.hour === summaryHour && time.minute >= summaryMinute);
-        const beforeEndOfDay = time.hour < endHour;
-        
-        if (afterSummary && beforeEndOfDay) {
-            console.log('Checking for late update...');
-            const lateUpdateProcessed = await processLateUpdate(messageText, ctx.chat.id, bot);
-            if (lateUpdateProcessed) {
-                console.log('Late update processed successfully');
-                return;
-            }
+        // Process during active hours (08:00 - 16:00)
+        console.log('Checking for late update...');
+        const lateUpdateProcessed = await processLateUpdate(messageText, ctx.chat.id, bot);
+        if (lateUpdateProcessed) {
+            console.log('Late update processed successfully');
+            return;
         }
         
         // If message doesn't match any pattern, ignore it
