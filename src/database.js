@@ -175,3 +175,110 @@ export async function calculateTotals() {
     };
 }
 
+/**
+ * Get daily total for a specific date
+ */
+export async function getDailyTotal(date) {
+    const { data, error } = await supabase
+        .from('daily_totals')
+        .select('total_students')
+        .eq('date', date)
+        .single();
+    
+    if (error && error.code !== 'PGRST116') { // PGRST116 = not found
+        console.error('Error getting daily total:', error);
+        return null;
+    }
+    
+    return data ? data.total_students : null;
+}
+
+/**
+ * Update daily total for a specific date
+ */
+export async function updateDailyTotal(date, total) {
+    const { data, error } = await supabase
+        .from('daily_totals')
+        .upsert({
+            date: date,
+            total_students: total,
+            calculated_at: new Date().toISOString()
+        }, {
+            onConflict: 'date'
+        })
+        .select()
+        .single();
+    
+    if (error) {
+        console.error('Error updating daily total:', error);
+        throw error;
+    }
+    
+    return data;
+}
+
+/**
+ * Get dynamic total for today or calculate from yesterday
+ * Today: Use 323 (hardcoded)
+ * Tomorrow+: Use yesterday's total if all classes submitted yesterday
+ */
+export async function getDynamicTotal() {
+    const today = getTodayDate();
+    
+    // For today, use hardcoded 323
+    const todayDate = new Date(today);
+    const now = new Date();
+    const tashkentDate = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Tashkent' }));
+    const todayLocal = new Date(tashkentDate.getFullYear(), tashkentDate.getMonth(), tashkentDate.getDate());
+    
+    // Check if it's the first day (today) - use 323
+    // For simplicity, we'll check if daily_totals table is empty or today's entry doesn't exist
+    const todayTotal = await getDailyTotal(today);
+    
+    if (todayTotal !== null) {
+        return todayTotal;
+    }
+    
+    // First time today - check if we should use yesterday's total
+    // Calculate yesterday's date
+    const yesterday = new Date(todayDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+    
+    // Check if all classes submitted yesterday
+    const { data: yesterdayRecords, error } = await supabase
+        .from('attendance_logs')
+        .select('class_name')
+        .eq('date', yesterdayStr);
+    
+    if (error) {
+        console.error('Error checking yesterday records:', error);
+        // Use 323 as default
+        await updateDailyTotal(today, 323);
+        return 323;
+    }
+    
+    const submittedClasses = new Set((yesterdayRecords || []).map(r => r.class_name));
+    const allSubmitted = config.classes.every(className => submittedClasses.has(className));
+    
+    if (allSubmitted && yesterdayRecords && yesterdayRecords.length > 0) {
+        // Calculate total from yesterday's submitted students
+        const { data: yesterdayAttendance } = await supabase
+            .from('attendance_logs')
+            .select('total_students')
+            .eq('date', yesterdayStr);
+        
+        if (yesterdayAttendance && yesterdayAttendance.length > 0) {
+            const yesterdayTotal = yesterdayAttendance.reduce((sum, record) => sum + (record.total_students || 0), 0);
+            if (yesterdayTotal > 0) {
+                await updateDailyTotal(today, yesterdayTotal);
+                return yesterdayTotal;
+            }
+        }
+    }
+    
+    // Default: use 323 for today
+    await updateDailyTotal(today, 323);
+    return 323;
+}
+

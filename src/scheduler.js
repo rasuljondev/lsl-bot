@@ -31,13 +31,15 @@ export function initScheduler(bot, targetChatId) {
         });
     });
     
-    // Schedule daily summary at 09:15
-    const summaryCron = `${config.summaryTime.minute} ${config.summaryTime.hour} * * *`;
-    cron.schedule(summaryCron, async () => {
-        console.log(`Daily summary scheduled at ${config.summaryTime.hour}:${config.summaryTime.minute}`);
-        await sendDailySummary(chatId, botInstance);
-    }, {
-        timezone: config.timezone
+    // Schedule daily summaries at multiple times: 09:15, 10:10, 11:05, 12:00
+    config.summaryTimes.forEach(({ hour, minute }) => {
+        const summaryCron = `${minute} ${hour} * * *`;
+        cron.schedule(summaryCron, async () => {
+            console.log(`Daily summary scheduled at ${hour}:${minute}`);
+            await sendDailySummary(chatId, botInstance);
+        }, {
+            timezone: config.timezone
+        });
     });
     
     // Schedule end of day message at 13:00

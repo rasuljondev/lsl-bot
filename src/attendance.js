@@ -1,6 +1,8 @@
 import { upsertAttendance, getClassTotalStudents, getTodayAttendance } from './database.js';
 import { config } from './config.js';
 import { notifyOnAttendanceUpdate } from './notifications.js';
+import { storeStudentNames } from './students.js';
+import { generateFullSummary } from './summaryGenerator.js';
 
 /**
  * Parse attendance message format: 
@@ -93,6 +95,11 @@ export async function processAttendanceMessage(text, chatId, bot) {
         totalStudents = dbTotal;
     }
     
+    // Store student names in database
+    if (parsed.studentNames && parsed.studentNames.length > 0) {
+        await storeStudentNames(parsed.className, parsed.studentNames);
+    }
+    
     // Store/update attendance
     await upsertAttendance(
         parsed.className,
@@ -101,16 +108,20 @@ export async function processAttendanceMessage(text, chatId, bot) {
         parsed.studentNames
     );
     
-        // Send confirmation
-        await bot.telegram.sendMessage(
-            chatId,
-            `✅ ${parsed.className} davomad qabul qilindi: ${totalStudents}/${parsed.presentCount}`
-        );
-        
-        // Notify authorized users
-        await notifyOnAttendanceUpdate(bot, parsed.className, totalStudents, parsed.presentCount, false);
-        
-        return true;
+    // Send confirmation
+    await bot.telegram.sendMessage(
+        chatId,
+        `✅ ${parsed.className} davomad qabul qilindi: ${totalStudents}/${parsed.presentCount}`
+    );
+    
+    // Generate and send full summary
+    const fullSummary = await generateFullSummary();
+    await bot.telegram.sendMessage(chatId, fullSummary);
+    
+    // Notify authorized users
+    await notifyOnAttendanceUpdate(bot, parsed.className, totalStudents, parsed.presentCount, false);
+    
+    return true;
 }
 
 /**
@@ -134,6 +145,11 @@ export async function updateAttendanceMessage(text, chatId, bot) {
             totalStudents = dbTotal;
         }
         
+        // Store student names in database
+        if (parsed.studentNames && parsed.studentNames.length > 0) {
+            await storeStudentNames(parsed.className, parsed.studentNames);
+        }
+        
         await upsertAttendance(
             parsed.className,
             parsed.presentCount,
@@ -146,6 +162,10 @@ export async function updateAttendanceMessage(text, chatId, bot) {
             chatId,
             `✅ ${parsed.className} yangilandi: ${totalStudents}/${parsed.presentCount}`
         );
+        
+        // Generate and send full summary
+        const fullSummary = await generateFullSummary();
+        await bot.telegram.sendMessage(chatId, fullSummary);
         
         // Notify authorized users
         await notifyOnAttendanceUpdate(bot, parsed.className, totalStudents, parsed.presentCount, true);

@@ -1,6 +1,8 @@
 import { getTodayAttendance, upsertAttendance, calculateTotals } from './database.js';
 import { config } from './config.js';
 import { notifyOnAttendanceUpdate } from './notifications.js';
+import { storeStudentNames } from './students.js';
+import { generateFullSummary } from './summaryGenerator.js';
 
 /**
  * Parse late update message: <ClassName> <StudentName> keldi/ketdi
@@ -72,6 +74,8 @@ export async function processLateUpdate(text, chatId, bot) {
         if (!studentNames.includes(parsed.studentName)) {
             studentNames.push(parsed.studentName);
             presentCount += 1;
+            // Store student name in database
+            await storeStudentNames(parsed.className, [parsed.studentName]);
         }
     } else if (parsed.action === 'ketdi') {
         // Student left - remove from present list
@@ -99,6 +103,10 @@ export async function processLateUpdate(text, chatId, bot) {
                    `Bugun jami ${totals.totalStudents} dan ${totals.totalPresent} kishi keldi`;
     
     await bot.telegram.sendMessage(chatId, message);
+    
+    // Generate and send full summary
+    const fullSummary = await generateFullSummary();
+    await bot.telegram.sendMessage(chatId, fullSummary);
     
     // Notify authorized users about the update
     await notifyOnAttendanceUpdate(bot, parsed.className, attendance.total_students, presentCount, true);

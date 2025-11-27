@@ -1,4 +1,4 @@
-import { calculateTotals, getAllTodayAttendance } from './database.js';
+import { calculateTotals, getAllTodayAttendance, getDynamicTotal } from './database.js';
 import { notifyOnDailySummary } from './notifications.js';
 import { config } from './config.js';
 
@@ -29,17 +29,65 @@ export async function sendDailySummary(chatId, bot) {
         }
     });
     
-    // Build summary message for group
-    let message = `📊 Bugungi davomad natijalari\n\n`;
-    message += `Jami: ${totals.totalStudents} ta o'quvchidan ${totals.totalPresent} tasi keldi\n`;
-    message += `Qolgan: ${totals.totalAbsent} ta o'quvchi\n`;
+    // Find missing classes (didn't submit)
+    const submittedClassNames = new Set(records.map(r => r.class_name));
+    const missingClasses = config.classes.filter(className => !submittedClassNames.has(className));
     
-    if (absentList.length > 0) {
-        message += `\n❌ Kelmaganlar ro'yxati:\n`;
-        message += absentList.join('\n');
+    // Use dynamic total
+    const dynamicTotal = await getDynamicTotal();
+    const totalStudentsForDisplay = dynamicTotal || totals.totalStudents;
+    
+    // Create ordered summary with all classes
+    const recordsMap = new Map();
+    records.forEach(record => {
+        recordsMap.set(record.class_name, record);
+    });
+    
+    let summaryLines = [];
+    let totalPresentCalc = 0;
+    let totalStudentsCalc = 0;
+    
+    // Fixed order: 1A, 1B, 2A, 2B, 3A, 4A, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 10A, 10B, 11A
+    config.classes.forEach(className => {
+        const record = recordsMap.get(className);
+        if (record) {
+            summaryLines.push(`${className}: ${record.present_count}/${record.total_students}`);
+            totalPresentCalc += record.present_count || 0;
+            totalStudentsCalc += record.total_students || 0;
+        } else {
+            summaryLines.push(`${className}: Topshirmadi`);
+        }
+    });
+    
+    // Check if all classes submitted
+    if (missingClasses.length === 0) {
+        // All classes submitted - send completion message with ordered classes
+        let completionMessage = `✅ Rahmat! Barcha sinflar davomad yubordi!\n\n` +
+            `📊 Bugungi davomad natijalari:\n\n`;
+        completionMessage += summaryLines.join('\n');
+        completionMessage += `\n\nJami: ${totalStudentsCalc}/${totalPresentCalc}`;
+        
+        if (absentList.length > 0) {
+            completionMessage += `\n\n❌ Kelmaganlar ro'yxati:\n`;
+            completionMessage += absentList.join('\n');
+        }
+        
+        completionMessage += `\n\n✅ Barcha sinflar davomad yubordi. Bot bugun ishini yakunladi va ertaga qaytadi.`;
+        
+        await bot.telegram.sendMessage(chatId, completionMessage);
+    } else {
+        // Not all classes submitted - send regular summary with ordered classes
+        let message = `📊 Bugungi davomad natijalari\n\n`;
+        message += summaryLines.join('\n');
+        message += `\n\nJami: ${totalStudentsCalc}/${totalPresentCalc}`;
+        
+        if (absentList.length > 0) {
+            message += `\n\n❌ Kelmaganlar ro'yxati:\n`;
+            message += absentList.join('\n');
+        }
+        
+        await bot.telegram.sendMessage(chatId, message);
     }
-    
-    await bot.telegram.sendMessage(chatId, message);
     
     // Build summary for authorized users (different format)
     const submittedClasses = records.map(r => ({

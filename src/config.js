@@ -38,7 +38,15 @@ export const config = {
         { hour: 10, minute: 0 }
     ],
     
-    // Summary time
+    // Summary times (multiple times to check)
+    summaryTimes: [
+        { hour: 9, minute: 15 },
+        { hour: 10, minute: 10 },
+        { hour: 11, minute: 5 },
+        { hour: 12, minute: 0 }
+    ],
+    
+    // Summary time (for backward compatibility)
     summaryTime: { hour: 9, minute: 15 },
     
     // End of day message time

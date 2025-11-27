@@ -74,3 +74,25 @@ CREATE INDEX IF NOT EXISTS idx_authorized_users_status ON authorized_users(statu
 CREATE INDEX IF NOT EXISTS idx_pending_requests_user_id ON pending_user_requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_pending_requests_status ON pending_user_requests(status);
 
+-- Students table to store student names per class
+CREATE TABLE IF NOT EXISTS students (
+    id SERIAL PRIMARY KEY,
+    class_name VARCHAR(10) NOT NULL,
+    student_name VARCHAR(255) NOT NULL,
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    source VARCHAR(50) DEFAULT 'attendance_message',
+    UNIQUE(class_name, student_name)
+);
+
+-- Daily totals table to track daily total student counts
+CREATE TABLE IF NOT EXISTS daily_totals (
+    id SERIAL PRIMARY KEY,
+    date DATE UNIQUE NOT NULL,
+    total_students INTEGER NOT NULL,
+    calculated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for new tables
+CREATE INDEX IF NOT EXISTS idx_students_class_name ON students(class_name);
+CREATE INDEX IF NOT EXISTS idx_daily_totals_date ON daily_totals(date);
+

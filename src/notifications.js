@@ -1,4 +1,5 @@
 import { getAllAuthorizedUsers } from './permissions.js';
+import { generateFullSummary } from './summaryGenerator.js';
 
 /**
  * Send notification to all authorized users
@@ -40,10 +41,14 @@ export async function notifyOnAttendanceUpdate(bot, className, total, present, i
             ? `✅ ${className} yangilandi: ${total}/${present}`
             : `✅ ${className} davomad qabul qilindi: ${total}/${present}`;
         
+        // Generate full summary
+        const fullSummary = await generateFullSummary();
+        
         // Send to all authorized users
         for (const user of authorizedUsers) {
             try {
                 await bot.telegram.sendMessage(user.chat_id, message);
+                await bot.telegram.sendMessage(user.chat_id, fullSummary);
             } catch (error) {
                 console.error(`Error sending notification to user ${user.user_id}:`, error);
             }

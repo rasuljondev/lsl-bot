@@ -111,13 +111,20 @@ bot.command('start', async (ctx) => {
 ✅ Ruxsat olgan foydalanuvchilar barcha yangilanishlarni avtomatik olasiz.`;
 
         if (isAuthorized) {
-            await ctx.reply(welcomeMessage + '\n\n✅ Sizga ruxsat berilgan.');
+            // Show report buttons for authorized users
+            const userKeyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('📊 Kunlik hisobot', 'user_report_daily')],
+                [Markup.button.callback('📈 Haftalik hisobot', 'user_report_weekly')],
+                [Markup.button.callback('📉 Oylik hisobot', 'user_report_monthly')]
+            ]);
+            
+            await ctx.reply(welcomeMessage + '\n\n✅ Sizga ruxsat berilgan.', userKeyboard);
         } else {
             // Show "Get Permission" button
             const keyboard = Markup.inlineKeyboard([
                 Markup.button.callback('🔐 Ruxsat olish', 'request_permission')
             ]);
-            
+
             await ctx.reply(welcomeMessage + '\n\n⚠️ Botdan foydalanish uchun ruxsat olishingiz kerak.', keyboard);
         }
         
@@ -248,6 +255,56 @@ bot.on('callback_query', async (ctx) => {
         
         if (data === 'admin_report_monthly') {
             if (!isOwner(userId)) {
+                await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
+                return;
+            }
+            
+            const today = new Date();
+            const result = await generateMonthlyReport(today.getMonth() + 1, today.getFullYear());
+            if (result.success) {
+                await ctx.reply(result.report);
+            } else {
+                await ctx.reply(`❌ ${result.message}`);
+            }
+        }
+        
+        // User report buttons (accessible to authorized users)
+        if (data === 'user_report_daily') {
+            const isAuthorized = await isUserAuthorized(userId);
+            if (!isAuthorized) {
+                await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
+                return;
+            }
+            
+            const result = await generateDailyReport();
+            if (result.success) {
+                await ctx.reply(result.report);
+            } else {
+                await ctx.reply(`❌ ${result.message}`);
+            }
+        }
+        
+        if (data === 'user_report_weekly') {
+            const isAuthorized = await isUserAuthorized(userId);
+            if (!isAuthorized) {
+                await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
+                return;
+            }
+            
+            const today = new Date();
+            const weekAgo = new Date(today);
+            weekAgo.setDate(today.getDate() - 7);
+            const result = await generateWeeklyReport(weekAgo.toISOString().split('T')[0], today.toISOString().split('T')[0]);
+            if (result.success) {
+                await ctx.reply(result.report);
+            } else {
+                await ctx.reply(`❌ ${result.message}`);
+            }
+        }
+        
+        if (data === 'user_report_monthly') {
+            const isAuthorized = await isUserAuthorized(userId);
+            if (!isAuthorized) {
                 await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
                 return;
             }
