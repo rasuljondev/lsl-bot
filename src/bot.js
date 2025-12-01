@@ -76,11 +76,11 @@ bot.command('start', async (ctx) => {
                 await approveUser(userId, userId);
             }
             
-            const adminMessage = `👋 Assalomu alaykum! LSL Davomad Bot - Admin Panel
+            const adminMessage = `👋 Assalomu alaykum! LSL Davomat Bot - Admin Panel
 
 🔐 Siz botning egasiz va barcha admin funksiyalarga ega ekansiz.
 
-📋 Bot maktab davomadini avtomatik yig'ish va hisoblash uchun yaratilgan.
+📋 Bot maktab davomatini avtomatik yig'ish va hisoblash uchun yaratilgan.
 
 ⏰ Faol vaqt: 08:00 - 16:00 (Toshkent vaqti)
 
@@ -102,9 +102,9 @@ bot.command('start', async (ctx) => {
         const isAuthorized = await isUserAuthorized(userId);
         console.log(`Regular user authorization check: ${isAuthorized}`);
         
-        const welcomeMessage = `👋 Assalomu alaykum! LSL Davomad Botiga xush kelibsiz!
+        const welcomeMessage = `👋 Assalomu alaykum! LSL Davomat Botiga xush kelibsiz!
 
-📋 Bot maktab davomadini avtomatik yig'ish va hisoblash uchun yaratilgan.
+📋 Bot maktab davomatini avtomatik yig'ish va hisoblash uchun yaratilgan.
 
 ⏰ Faol vaqt: 08:00 - 16:00 (Toshkent vaqti)
 

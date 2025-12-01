@@ -111,7 +111,7 @@ export async function processAttendanceMessage(text, chatId, bot) {
     // Send simple confirmation to group (no full summary)
     await bot.telegram.sendMessage(
         chatId,
-        `✅ ${parsed.className} davomad qabul qilindi: ${totalStudents}/${parsed.presentCount}`
+        `✅ ${parsed.className} davomat qabul qilindi: ${totalStudents}/${parsed.presentCount}`
     );
     
     // Notify authorized users with full info

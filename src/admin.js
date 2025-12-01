@@ -57,14 +57,26 @@ export async function generateDailyReport(date = null) {
     let report = `📊 Kunlik hisobot (${reportDate})\n\n`;
     
     if (records && records.length > 0) {
-        records.forEach(record => {
-            report += `${record.class_name}: ${record.present_count}/${record.total_students}\n`;
+        // Sort by class name to maintain order
+        const sortedRecords = records.sort((a, b) => {
+            const classOrder = config.classes.indexOf(a.class_name) - config.classes.indexOf(b.class_name);
+            return classOrder !== -1 ? classOrder : a.class_name.localeCompare(b.class_name);
+        });
+        
+        sortedRecords.forEach(record => {
+            // Format: total/present
+            report += `${record.class_name}: ${record.total_students}/${record.present_count}\n`;
         });
     } else {
         report += 'Hech qanday ma\'lumot topilmadi.\n';
     }
     
+    const totalAbsent = totalStudents - totalPresent;
     report += `\nJami: ${totalStudents}/${totalPresent}`;
+    
+    if (totalAbsent > 0) {
+        report += `\nKelmaganlar: ${totalAbsent}`;
+    }
     
     return { success: true, report };
 }
@@ -105,7 +117,13 @@ export async function generateWeeklyReport(startDate, endDate) {
     let totalPresent = 0;
     
     dateMap.forEach((day, date) => {
-        report += `${date}: ${day.present}/${day.total}\n`;
+        // Format: total/present
+        const dayAbsent = day.total - day.present;
+        report += `${date}: ${day.total}/${day.present}`;
+        if (dayAbsent > 0) {
+            report += ` (Kelmaganlar: ${dayAbsent})`;
+        }
+        report += `\n`;
         totalDays += 1;
         totalStudents += day.total;
         totalPresent += day.present;
@@ -114,7 +132,12 @@ export async function generateWeeklyReport(startDate, endDate) {
     if (totalDays > 0) {
         const avgPresent = Math.round(totalPresent / totalDays);
         const avgTotal = Math.round(totalStudents / totalDays);
-        report += `\nO'rtacha: ${avgPresent}/${avgTotal}`;
+        const totalAbsent = totalStudents - totalPresent;
+        report += `\nO'rtacha: ${avgTotal}/${avgPresent}`;
+        report += `\nJami: ${totalStudents}/${totalPresent}`;
+        if (totalAbsent > 0) {
+            report += `\nKelmaganlar: ${totalAbsent}`;
+        }
     }
     
     return { success: true, report };
@@ -125,8 +148,17 @@ export async function generateWeeklyReport(startDate, endDate) {
  */
 export async function generateMonthlyReport(month, year) {
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = `${year}-${String(month).padStart(2, '0')}-31`;
+    // Get last day of month
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     
-    return await generateWeeklyReport(startDate, endDate);
+    const result = await generateWeeklyReport(startDate, endDate);
+    
+    // Update title for monthly report
+    if (result.success) {
+        result.report = result.report.replace('📊 Haftalik hisobot', '📊 Oylik hisobot');
+    }
+    
+    return result;
 }
 

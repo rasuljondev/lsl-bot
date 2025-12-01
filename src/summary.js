@@ -63,7 +63,7 @@ export async function sendDailySummary(chatId, bot) {
     // Always send full summary at scheduled times (9:15, 10:10, 11:05, 12:00)
     // Bot keeps working even if all classes submitted
     const totalAbsentCalc = totalStudentsCalc - totalPresentCalc;
-    let message = `📊 Bugungi davomad natijalari\n\n`;
+    let message = `📊 Bugungi davomat natijalari\n\n`;
     message += summaryLines.join('\n');
     message += `\n\nJami: ${totalStudentsCalc}/${totalPresentCalc}`;
     
@@ -74,7 +74,7 @@ export async function sendDailySummary(chatId, bot) {
     if (missingClasses.length > 0) {
         message += `\n\n📋 Topshirmagan sinflar: ${missingClasses.join(', ')}`;
     } else {
-        message += `\n\n✅ Barcha sinflar davomad yubordi.`;
+        message += `\n\n✅ Barcha sinflar davomat yubordi.`;
     }
     
     await bot.telegram.sendMessage(chatId, message);

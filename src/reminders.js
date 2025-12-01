@@ -13,7 +13,7 @@ export async function sendReminder(chatId, bot) {
     }
     
     const classList = missingClasses.join(', ');
-    const message = `⏰ Eslatma: Quyidagi sinflar hali davomad yubormadi:\n${classList}`;
+    const message = `⏰ Eslatma: Quyidagi sinflar hali davomat yubormadi:\n${classList}`;
     
     await bot.telegram.sendMessage(chatId, message);
 }

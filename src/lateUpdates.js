@@ -98,8 +98,9 @@ export async function processLateUpdate(text, chatId, bot) {
     const totals = await calculateTotals();
     
     // Send simple confirmation message to group (no full summary)
+    // Format: ✅ 10A yangilandi 15/14: Hojiakbar keldi
     const actionText = parsed.action === 'keldi' ? 'keldi' : 'ketdi';
-    const message = `✅ ${parsed.className} yangilandi: ${parsed.studentName} ${actionText}`;
+    const message = `✅ ${parsed.className} yangilandi ${attendance.total_students}/${presentCount}: ${parsed.studentName} ${actionText}`;
     
     await bot.telegram.sendMessage(chatId, message);
     

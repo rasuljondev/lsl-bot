@@ -30,27 +30,6 @@ export async function generateFullSummary() {
             summaryLines.push(`${className}: ${record.total_students}/${record.present_count}`);
             totalPresent += record.present_count || 0;
             totalStudents += record.total_students || 0;
-            
-            // Add absent student names if available
-            const presentNames = record.student_names || [];
-            const absentCount = record.total_students - record.present_count;
-            
-            if (absentCount > 0) {
-                // Get all students for this class from database
-                const allStudents = await getClassStudents(className);
-                
-                if (allStudents.length > 0 && presentNames.length > 0) {
-                    // Find absent students (students not in present list)
-                    const absentStudents = allStudents.filter(name => !presentNames.includes(name));
-                    
-                    // If we have absent student names, show them
-                    if (absentStudents.length > 0 && absentStudents.length <= absentCount) {
-                        absentStudents.forEach(name => {
-                            summaryLines.push(name);
-                        });
-                    }
-                }
-            }
         } else {
             summaryLines.push(`${className}: Topshirmadi`);
         }

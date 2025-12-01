@@ -39,7 +39,7 @@ export async function notifyOnAttendanceUpdate(bot, className, total, present, i
         
         const message = isUpdate 
             ? `✅ ${className} yangilandi: ${total}/${present}`
-            : `✅ ${className} davomad qabul qilindi: ${total}/${present}`;
+            : `✅ ${className} davomat qabul qilindi: ${total}/${present}`;
         
         // Generate full summary
         const fullSummary = await generateFullSummary();
