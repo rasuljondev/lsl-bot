@@ -499,7 +499,7 @@ app.get(`/webhook/${config.botToken}`, (req, res) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() });
+    res.json({ status: 'ok', time: new Date().toISOString(), version: 'redeploy-2026-04-27' });
 });
 
 // Start server
