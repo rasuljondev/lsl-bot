@@ -15,8 +15,8 @@ A Telegram bot for tracking daily student attendance at LSL School. The bot pars
 ## Tech Stack
 
 - **Framework**: Telegraf (Node.js)
-- **Database**: Supabase (PostgreSQL)
-- **Hosting**: Render (Webhook mode)
+- **Database**: PostgreSQL (via `pg`)
+- **Hosting**: VPS (Hetzner) under pm2, long-polling mode
 - **Scheduling**: node-cron
 
 ## Setup
@@ -147,10 +147,19 @@ lsl-bot/
 ## Environment Variables
 
 - `BOT_TOKEN`: Telegram bot token
-- `SUPABASE_URL`: Supabase project URL
-- `SUPABASE_KEY`: Supabase anon key
-- `WEBHOOK_URL`: Webhook URL for Render (optional for local dev)
-- `PORT`: Server port (default: 3000)
+- `DATABASE_URL`: PostgreSQL connection string, e.g. `postgres://lslbot:pass@127.0.0.1:5432/lslbot`
+- `WEBHOOK_URL`: leave empty for long-polling mode; set to the public HTTPS base URL for webhook mode
+- `PORT`: HTTP port for the `/health` endpoint (default: 3000)
+
+## Deploy (VPS)
+
+```bash
+cd /var/www/lsl-bot
+npm install --omit=dev
+psql "$DATABASE_URL" -f sql/schema.sql        # first time only
+pm2 start ecosystem.config.cjs
+pm2 save
+```
 
 ## License
 

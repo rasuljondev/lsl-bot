@@ -9,17 +9,21 @@ CREATE TABLE IF NOT EXISTS classes (
 -- Insert fixed class list with their total student counts
 -- Note: Update total_students values based on actual data
 INSERT INTO classes (class_name, total_students) VALUES
+    ('0A', 0),
     ('1A', 0),
     ('1B', 0),
     ('2A', 0),
     ('2B', 0),
     ('3A', 0),
+    ('3B', 0),
     ('4A', 0),
+    ('4B', 0),
     ('5A', 0),
     ('5B', 0),
     ('6A', 0),
     ('6B', 0),
     ('7A', 0),
+    ('7B', 0),
     ('8A', 0),
     ('8B', 0),
     ('9A', 0),
@@ -90,6 +94,13 @@ CREATE TABLE IF NOT EXISTS daily_totals (
     date DATE UNIQUE NOT NULL,
     total_students INTEGER NOT NULL,
     calculated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Days off: dates when the bot pauses (no attendance recording, no reminders/summaries)
+CREATE TABLE IF NOT EXISTS days_off (
+    date DATE PRIMARY KEY,
+    set_by BIGINT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Indexes for new tables

@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { sendReminder } from './reminders.js';
 import { sendDailySummary } from './summary.js';
+import { isDayOff } from './database.js';
 import { config } from './config.js';
 
 let botInstance = null;
@@ -24,27 +25,39 @@ export function initScheduler(bot, targetChatId) {
     config.reminderTimes.forEach(({ hour, minute }) => {
         const cronExpression = `${minute} ${hour} * * *`;
         cron.schedule(cronExpression, async () => {
+            if (await isDayOff()) {
+                console.log(`Day off - skipping reminder at ${hour}:${minute}`);
+                return;
+            }
             console.log(`Reminder scheduled at ${hour}:${minute}`);
             await sendReminder(chatId, botInstance);
         }, {
             timezone: config.timezone
         });
     });
-    
+
     // Schedule daily summaries at multiple times: 09:15, 10:10, 11:05, 12:00
     config.summaryTimes.forEach(({ hour, minute }) => {
         const summaryCron = `${minute} ${hour} * * *`;
         cron.schedule(summaryCron, async () => {
+            if (await isDayOff()) {
+                console.log(`Day off - skipping summary at ${hour}:${minute}`);
+                return;
+            }
             console.log(`Daily summary scheduled at ${hour}:${minute}`);
             await sendDailySummary(chatId, botInstance);
         }, {
             timezone: config.timezone
         });
     });
-    
-    // Schedule end of day message at 13:00
+
+    // Schedule end of day message at 16:00
     const endOfDayCron = `${config.endOfDayTime.minute} ${config.endOfDayTime.hour} * * *`;
     cron.schedule(endOfDayCron, async () => {
+        if (await isDayOff()) {
+            console.log('Day off - skipping end of day message');
+            return;
+        }
         console.log(`End of day message scheduled at ${config.endOfDayTime.hour}:${config.endOfDayTime.minute}`);
         await botInstance.telegram.sendMessage(chatId, 'Bot kunlik faoliyatini yakunladi');
     }, {

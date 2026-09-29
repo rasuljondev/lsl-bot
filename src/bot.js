@@ -1,21 +1,19 @@
 import { Telegraf, Markup } from 'telegraf';
 import express from 'express';
 import { config } from './config.js';
-import { isWithinActiveHours, getTashkentTime } from './database.js';
+import { isWithinActiveHours, getTashkentTime, isDayOff, pool } from './database.js';
 import { updateAttendanceMessage } from './attendance.js';
 import { processLateUpdate } from './lateUpdates.js';
 import { initScheduler } from './scheduler.js';
-import { isGroupAuthorized, isUserAuthorized, requestUserAccess, approveUser, rejectUser } from './permissions.js';
+import { isGroupAuthorized, isUserAuthorized, requestUserAccess, approveUser, rejectUser, ensureAuthorized } from './permissions.js';
 import { isOwner, cleanTodayData, generateDailyReport, generateWeeklyReport, generateMonthlyReport } from './admin.js';
+import { handleDayOffCommand, toggleDayOffToday } from './dayoff.js';
 
 const bot = new Telegraf(config.botToken);
 const app = express();
 
 // Middleware to parse JSON
 app.use(express.json());
-
-// Store chat ID (will be set from first message)
-let chatId = null;
 
 // Handle /start command (works anytime, not restricted by active hours)
 bot.command('start', async (ctx) => {
@@ -67,14 +65,10 @@ bot.command('start', async (ctx) => {
         
         // Owner/admin gets special greeting with admin buttons
         if (isOwnerUser) {
-            // Auto-approve owner if not already authorized
-            const isAuthorized = await isUserAuthorized(userId);
-            console.log(`Owner authorization check: ${isAuthorized}`);
-            if (!isAuthorized) {
-                // Auto-approve owner
-                console.log('Auto-approving owner...');
-                await approveUser(userId, userId);
-            }
+            // Make sure the owner is always in the authorized list so they
+            // receive the automatic "new data" reports in DM.
+            const username = ctx.from.username || ctx.from.first_name || 'owner';
+            await ensureAuthorized(userId, username, ctx.chat.id, userId);
             
             const adminMessage = `👋 Assalomu alaykum! LSL Davomat Bot - Admin Panel
 
@@ -87,6 +81,7 @@ bot.command('start', async (ctx) => {
 🔧 Admin funksiyalar:`;
 
             const adminKeyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('📴 Bugun dam olish kuni (yoqish/o\'chirish)', 'admin_dayoff_toggle')],
                 [Markup.button.callback('🗑️ Bugungi ma\'lumotlarni tozalash', 'admin_cleandata')],
                 [Markup.button.callback('📊 Kunlik hisobot', 'admin_report_daily')],
                 [Markup.button.callback('📈 Haftalik hisobot', 'admin_report_weekly')],
@@ -212,6 +207,10 @@ bot.on('callback_query', async (ctx) => {
         }
         
         // Admin actions via buttons
+        if (data === 'admin_dayoff_toggle') {
+            await toggleDayOffToday(ctx, bot);
+        }
+
         if (data === 'admin_cleandata') {
             if (!isOwner(userId)) {
                 await ctx.reply('❌ Sizda bu amalni bajarish uchun ruxsat yo\'q.');
@@ -332,6 +331,8 @@ bot.command('cleandata', async (ctx) => {
     await ctx.reply(result.success ? '✅ Bugungi ma\'lumotlar tozalandi.' : `❌ ${result.message}`);
 });
 
+bot.command('dayoff', (ctx) => handleDayOffCommand(ctx, bot));
+
 bot.command('report', async (ctx) => {
     if (!isOwner(ctx.from.id)) {
         return;
@@ -396,14 +397,6 @@ bot.on('message', async (ctx) => {
             }
             
             console.log(`✅ AUTHORIZED GROUP CONFIRMED`);
-            
-            // Store chat ID from first message (for scheduler)
-            if (!chatId) {
-                chatId = chatIdReceived;
-                console.log(`📌 Chat ID stored for scheduler: ${chatId}`);
-                // Initialize scheduler now that we have chat ID
-                initScheduler(bot, chatId);
-            }
         } else {
             // For private messages, check if user is authorized
             console.log(`🔍 Checking user authorization for private message...`);
@@ -448,7 +441,13 @@ bot.on('message', async (ctx) => {
         }
         
         console.log('Processing message within active hours');
-    
+
+        // Skip all attendance recording on a day off (owner set via /dayoff)
+        if (await isDayOff()) {
+            console.log('Day off - not recording attendance / late updates');
+            return;
+        }
+
         // Try to parse as attendance message first
         // Check if it's an update (existing record) or new submission
         const attendanceProcessed = await updateAttendanceMessage(messageText, ctx.chat.id, bot);
@@ -498,18 +497,58 @@ app.get(`/webhook/${config.botToken}`, (req, res) => {
 });
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString(), version: 'redeploy-2026-04-27' });
+app.get('/health', async (req, res) => {
+    let db = 'unknown';
+    try {
+        await pool.query('SELECT 1');
+        db = 'ok';
+    } catch (error) {
+        db = 'error';
+    }
+    res.json({ status: 'ok', db, time: new Date().toISOString(), version: 'hetzner-pg-2026-09-02' });
 });
 
+const WEBHOOK_WATCHDOG_INTERVAL_MS = 2 * 60 * 1000;
+
+/**
+ * In polling mode no webhook should ever be registered. If another deployment
+ * calls setWebhook it silently terminates our polling loop, so watch for that
+ * and recover.
+ */
+function startWebhookWatchdog() {
+    setInterval(async () => {
+        try {
+            const info = await bot.telegram.getWebhookInfo();
+            if (info.url) {
+                console.error(`Foreign webhook detected (${info.url}) - removing and restarting`);
+                await bot.telegram.deleteWebhook();
+                process.exit(1);
+            }
+        } catch (err) {
+            console.error('Webhook watchdog check failed:', err.message);
+        }
+    }, WEBHOOK_WATCHDOG_INTERVAL_MS);
+}
+
 // Start server
-// Bind to 0.0.0.0 so Render can detect the port
 const PORT = config.port || process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 
-app.listen(PORT, HOST, () => {
+app.listen(PORT, HOST, async () => {
     console.log(`Server running on ${HOST}:${PORT}`);
     console.log(`Webhook URL: /webhook/${config.botToken}`);
+
+    // Verify database connectivity on startup (non-fatal, just log)
+    try {
+        await pool.query('SELECT 1');
+        console.log('PostgreSQL connection OK');
+    } catch (err) {
+        console.error('PostgreSQL connection FAILED at startup:', err.message);
+    }
+
+    // Arm the cron jobs immediately. Waiting for a group message meant that
+    // after any restart the reminders and summaries silently never fired.
+    initScheduler(bot, config.allowedGroupId);
     
     // If webhook URL is provided, set it up (non-blocking with retry)
     if (config.webhookUrl) {
@@ -548,9 +587,19 @@ app.listen(PORT, HOST, () => {
             console.error('Webhook setup error:', err);
         });
     } else {
-        console.log('Webhook URL not provided. Using long-polling mode.');
-        // For local development, use long-polling
-        bot.launch();
+        console.log('WEBHOOK_URL not set. Starting in long-polling mode.');
+        // launch() removes any existing webhook, then starts getUpdates polling
+        bot.launch()
+            .then(() => console.log('Long-polling loop ended'))
+            .catch((err) => {
+                // A foreign setWebhook call kills polling with a 409. Exiting lets
+                // pm2 restart us into a clean polling loop instead of staying
+                // "online" but deaf to every message.
+                console.error('Long-polling failed, exiting for restart:', err.message);
+                process.exit(1);
+            });
+
+        startWebhookWatchdog();
     }
 });
 

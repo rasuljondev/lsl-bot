@@ -4,40 +4,40 @@ dotenv.config();
 
 export const config = {
     botToken: process.env.BOT_TOKEN,
-    supabaseUrl: process.env.SUPABASE_URL,
-    supabaseKey: process.env.SUPABASE_KEY,
+    databaseUrl: process.env.DATABASE_URL,
     webhookUrl: process.env.WEBHOOK_URL || '',
     port: parseInt(process.env.PORT || '3000', 10),
     timezone: 'Asia/Tashkent',
-    
+
     // Fixed class list
     classes: [
+        '0A',
         '1A', '1B',
         '2A', '2B',
-        '3A',
-        '4A',
+        '3A', '3B',
+        '4A', '4B',
         '5A', '5B',
         '6A', '6B',
-        '7A',
+        '7A', '7B',
         '8A', '8B',
         '9A', '9B',
         '10A', '10B',
         '11A'
     ],
-    
+
     // Active hours (Asia/Tashkent time)
     activeHours: {
         start: { hour: 8, minute: 0 },
         end: { hour: 16, minute: 0 }
     },
-    
+
     // Reminder times (after summary time)
     reminderTimes: [
         { hour: 9, minute: 30 },
         { hour: 9, minute: 45 },
         { hour: 10, minute: 0 }
     ],
-    
+
     // Summary times (multiple times to check)
     summaryTimes: [
         { hour: 9, minute: 15 },
@@ -45,13 +45,13 @@ export const config = {
         { hour: 11, minute: 5 },
         { hour: 12, minute: 0 }
     ],
-    
+
     // Summary time (for backward compatibility)
     summaryTime: { hour: 9, minute: 15 },
-    
+
     // End of day message time
     endOfDayTime: { hour: 16, minute: 0 },
-    
+
     // Owner and group configuration
     ownerUserId: 7348523493,
     allowedGroupId: -1002194713771
@@ -62,11 +62,6 @@ if (!config.botToken) {
     throw new Error('BOT_TOKEN is required in .env file');
 }
 
-if (!config.supabaseUrl) {
-    throw new Error('SUPABASE_URL is required in .env file');
+if (!config.databaseUrl) {
+    throw new Error('DATABASE_URL is required in .env file');
 }
-
-if (!config.supabaseKey) {
-    throw new Error('SUPABASE_KEY is required in .env file');
-}
-

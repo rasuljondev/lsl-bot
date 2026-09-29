@@ -1,7 +1,38 @@
-import { createClient } from '@supabase/supabase-js';
+import pg from 'pg';
 import { config } from './config.js';
 
-export const supabase = createClient(config.supabaseUrl, config.supabaseKey);
+const { Pool, types } = pg;
+
+// Return DATE columns (OID 1082) as plain 'YYYY-MM-DD' strings instead of JS Date
+// objects, matching how the previous Supabase/PostgREST layer behaved.
+types.setTypeParser(1082, (value) => value);
+
+export const pool = new Pool({
+    connectionString: config.databaseUrl,
+    max: 10,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000
+});
+
+pool.on('error', (err) => {
+    console.error('Unexpected PostgreSQL pool error:', err);
+});
+
+/**
+ * Run a parameterized query and return all rows.
+ */
+export async function query(text, params = []) {
+    const result = await pool.query(text, params);
+    return result.rows;
+}
+
+/**
+ * Run a parameterized query and return the first row (or null).
+ */
+export async function queryOne(text, params = []) {
+    const result = await pool.query(text, params);
+    return result.rows[0] || null;
+}
 
 /**
  * Get today's date in Asia/Tashkent timezone
@@ -29,16 +60,16 @@ export function getTashkentTime() {
 }
 
 /**
- * Check if current time is within active hours (08:15 - 13:00)
+ * Check if current time is within active hours (08:00 - 16:00)
  */
 export function isWithinActiveHours() {
     const time = getTashkentTime();
     const { start, end } = config.activeHours;
-    
+
     const currentMinutes = time.hour * 60 + time.minute;
     const startMinutes = start.hour * 60 + start.minute;
     const endMinutes = end.hour * 60 + end.minute;
-    
+
     return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
 }
 
@@ -46,18 +77,16 @@ export function isWithinActiveHours() {
  * Get class total students from database
  */
 export async function getClassTotalStudents(className) {
-    const { data, error } = await supabase
-        .from('classes')
-        .select('total_students')
-        .eq('class_name', className)
-        .single();
-    
-    if (error || !data) {
-        // If class not found, return 0 or use present_count as fallback
+    try {
+        const row = await queryOne(
+            'SELECT total_students FROM classes WHERE class_name = $1',
+            [className]
+        );
+        return row ? row.total_students : null;
+    } catch (error) {
+        console.error('Error getting class total students:', error);
         return null;
     }
-    
-    return data.total_students;
 }
 
 /**
@@ -65,28 +94,24 @@ export async function getClassTotalStudents(className) {
  */
 export async function upsertAttendance(className, presentCount, totalStudents, studentNames) {
     const date = getTodayDate();
-    
-    const { data, error } = await supabase
-        .from('attendance_logs')
-        .upsert({
-            class_name: className,
-            present_count: presentCount,
-            total_students: totalStudents,
-            student_names: studentNames,
-            date: date,
-            updated_at: new Date().toISOString()
-        }, {
-            onConflict: 'class_name,date'
-        })
-        .select()
-        .single();
-    
-    if (error) {
+
+    try {
+        const row = await queryOne(
+            `INSERT INTO attendance_logs (class_name, present_count, total_students, student_names, date, updated_at)
+             VALUES ($1, $2, $3, $4::jsonb, $5, now())
+             ON CONFLICT (class_name, date) DO UPDATE SET
+                present_count = EXCLUDED.present_count,
+                total_students = EXCLUDED.total_students,
+                student_names = EXCLUDED.student_names,
+                updated_at = now()
+             RETURNING *`,
+            [className, presentCount, totalStudents, JSON.stringify(studentNames || []), date]
+        );
+        return row;
+    } catch (error) {
         console.error('Error upserting attendance:', error);
         throw error;
     }
-    
-    return data;
 }
 
 /**
@@ -94,20 +119,16 @@ export async function upsertAttendance(className, presentCount, totalStudents, s
  */
 export async function getTodayAttendance(className) {
     const date = getTodayDate();
-    
-    const { data, error } = await supabase
-        .from('attendance_logs')
-        .select('*')
-        .eq('class_name', className)
-        .eq('date', date)
-        .single();
-    
-    if (error && error.code !== 'PGRST116') { // PGRST116 = not found
+
+    try {
+        return await queryOne(
+            'SELECT * FROM attendance_logs WHERE class_name = $1 AND date = $2',
+            [className, date]
+        );
+    } catch (error) {
         console.error('Error getting attendance:', error);
         throw error;
     }
-    
-    return data;
 }
 
 /**
@@ -115,18 +136,16 @@ export async function getTodayAttendance(className) {
  */
 export async function getAllTodayAttendance() {
     const date = getTodayDate();
-    
-    const { data, error } = await supabase
-        .from('attendance_logs')
-        .select('*')
-        .eq('date', date);
-    
-    if (error) {
+
+    try {
+        return await query(
+            'SELECT * FROM attendance_logs WHERE date = $1',
+            [date]
+        );
+    } catch (error) {
         console.error('Error getting all attendance:', error);
         throw error;
     }
-    
-    return data || [];
 }
 
 /**
@@ -134,21 +153,18 @@ export async function getAllTodayAttendance() {
  */
 export async function getMissingClasses() {
     const date = getTodayDate();
-    
-    const { data, error } = await supabase
-        .from('attendance_logs')
-        .select('class_name')
-        .eq('date', date);
-    
-    if (error) {
+
+    try {
+        const rows = await query(
+            'SELECT class_name FROM attendance_logs WHERE date = $1',
+            [date]
+        );
+        const submittedClasses = new Set(rows.map(record => record.class_name));
+        return config.classes.filter(className => !submittedClasses.has(className));
+    } catch (error) {
         console.error('Error getting missing classes:', error);
         throw error;
     }
-    
-    const submittedClasses = new Set((data || []).map(record => record.class_name));
-    const missingClasses = config.classes.filter(className => !submittedClasses.has(className));
-    
-    return missingClasses;
 }
 
 /**
@@ -156,17 +172,17 @@ export async function getMissingClasses() {
  */
 export async function calculateTotals() {
     const records = await getAllTodayAttendance();
-    
+
     let totalPresent = 0;
     let totalStudents = 0;
-    
+
     records.forEach(record => {
         totalPresent += record.present_count || 0;
         totalStudents += record.total_students || 0;
     });
-    
+
     const totalAbsent = totalStudents - totalPresent;
-    
+
     return {
         totalPresent,
         totalStudents,
@@ -179,106 +195,139 @@ export async function calculateTotals() {
  * Get daily total for a specific date
  */
 export async function getDailyTotal(date) {
-    const { data, error } = await supabase
-        .from('daily_totals')
-        .select('total_students')
-        .eq('date', date)
-        .single();
-    
-    if (error && error.code !== 'PGRST116') { // PGRST116 = not found
+    try {
+        const row = await queryOne(
+            'SELECT total_students FROM daily_totals WHERE date = $1',
+            [date]
+        );
+        return row ? row.total_students : null;
+    } catch (error) {
         console.error('Error getting daily total:', error);
         return null;
     }
-    
-    return data ? data.total_students : null;
+}
+
+/**
+ * Mark a date as a day off. On a day off the bot records no attendance and
+ * sends no reminders or summaries.
+ */
+export async function setDayOff(date, setBy) {
+    await pool.query(
+        `INSERT INTO days_off (date, set_by)
+         VALUES ($1, $2)
+         ON CONFLICT (date) DO UPDATE SET set_by = EXCLUDED.set_by`,
+        [date, setBy]
+    );
+}
+
+/**
+ * Remove the day-off mark from a date. Returns true if a row was removed.
+ */
+export async function clearDayOff(date) {
+    const result = await pool.query('DELETE FROM days_off WHERE date = $1', [date]);
+    return result.rowCount > 0;
+}
+
+/**
+ * Whether a 'YYYY-MM-DD' date falls on a Sunday.
+ */
+export function isSunday(date = getTodayDate()) {
+    return new Date(`${date}T00:00:00Z`).getUTCDay() === 0;
+}
+
+/**
+ * Check whether a date (default: today, Tashkent) is a day off.
+ * Sundays are always off; other dates are off only if listed in days_off.
+ */
+export async function isDayOff(date = getTodayDate()) {
+    if (isSunday(date)) {
+        return true;
+    }
+    try {
+        const row = await queryOne('SELECT 1 FROM days_off WHERE date = $1', [date]);
+        return !!row;
+    } catch (error) {
+        console.error('Error checking day off:', error);
+        return false;
+    }
+}
+
+/**
+ * List day-off dates from `fromDate` (inclusive, default today) onward.
+ */
+export async function getUpcomingDaysOff(fromDate = getTodayDate()) {
+    try {
+        const rows = await query(
+            'SELECT date FROM days_off WHERE date >= $1 ORDER BY date ASC',
+            [fromDate]
+        );
+        return rows.map(r => r.date);
+    } catch (error) {
+        console.error('Error listing days off:', error);
+        return [];
+    }
 }
 
 /**
  * Update daily total for a specific date
  */
 export async function updateDailyTotal(date, total) {
-    const { data, error } = await supabase
-        .from('daily_totals')
-        .upsert({
-            date: date,
-            total_students: total,
-            calculated_at: new Date().toISOString()
-        }, {
-            onConflict: 'date'
-        })
-        .select()
-        .single();
-    
-    if (error) {
+    try {
+        const row = await queryOne(
+            `INSERT INTO daily_totals (date, total_students, calculated_at)
+             VALUES ($1, $2, now())
+             ON CONFLICT (date) DO UPDATE SET
+                total_students = EXCLUDED.total_students,
+                calculated_at = now()
+             RETURNING *`,
+            [date, total]
+        );
+        return row;
+    } catch (error) {
         console.error('Error updating daily total:', error);
         throw error;
     }
-    
-    return data;
 }
 
 /**
  * Get dynamic total for today or calculate from yesterday
- * Today: Use 323 (hardcoded)
- * Tomorrow+: Use yesterday's total if all classes submitted yesterday
+ * Today: Use 323 (hardcoded) unless yesterday had a full set of submissions
  */
 export async function getDynamicTotal() {
     const today = getTodayDate();
-    
-    // For today, use hardcoded 323
     const todayDate = new Date(today);
-    const now = new Date();
-    const tashkentDate = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Tashkent' }));
-    const todayLocal = new Date(tashkentDate.getFullYear(), tashkentDate.getMonth(), tashkentDate.getDate());
-    
-    // Check if it's the first day (today) - use 323
-    // For simplicity, we'll check if daily_totals table is empty or today's entry doesn't exist
+
     const todayTotal = await getDailyTotal(today);
-    
     if (todayTotal !== null) {
         return todayTotal;
     }
-    
+
     // First time today - check if we should use yesterday's total
-    // Calculate yesterday's date
     const yesterday = new Date(todayDate);
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
-    
-    // Check if all classes submitted yesterday
-    const { data: yesterdayRecords, error } = await supabase
-        .from('attendance_logs')
-        .select('class_name')
-        .eq('date', yesterdayStr);
-    
-    if (error) {
-        console.error('Error checking yesterday records:', error);
-        // Use 323 as default
-        await updateDailyTotal(today, 323);
-        return 323;
-    }
-    
-    const submittedClasses = new Set((yesterdayRecords || []).map(r => r.class_name));
-    const allSubmitted = config.classes.every(className => submittedClasses.has(className));
-    
-    if (allSubmitted && yesterdayRecords && yesterdayRecords.length > 0) {
-        // Calculate total from yesterday's submitted students
-        const { data: yesterdayAttendance } = await supabase
-            .from('attendance_logs')
-            .select('total_students')
-            .eq('date', yesterdayStr);
-        
-        if (yesterdayAttendance && yesterdayAttendance.length > 0) {
-            const yesterdayTotal = yesterdayAttendance.reduce((sum, record) => sum + (record.total_students || 0), 0);
+
+    try {
+        const yesterdayRecords = await query(
+            'SELECT class_name, total_students FROM attendance_logs WHERE date = $1',
+            [yesterdayStr]
+        );
+
+        const submittedClasses = new Set(yesterdayRecords.map(r => r.class_name));
+        const allSubmitted = config.classes.every(className => submittedClasses.has(className));
+
+        if (allSubmitted && yesterdayRecords.length > 0) {
+            const yesterdayTotal = yesterdayRecords.reduce((sum, record) => sum + (record.total_students || 0), 0);
             if (yesterdayTotal > 0) {
                 await updateDailyTotal(today, yesterdayTotal);
                 return yesterdayTotal;
             }
         }
+    } catch (error) {
+        console.error('Error checking yesterday records:', error);
     }
-    
+
     // Default: use 323 for today
     await updateDailyTotal(today, 323);
     return 323;
 }
-

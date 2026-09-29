@@ -1,4 +1,4 @@
-import { supabase } from './database.js';
+import { query, queryOne } from './database.js';
 import { config } from './config.js';
 
 /**
@@ -12,165 +12,170 @@ export function isGroupAuthorized(groupId) {
  * Check if user is authorized
  */
 export async function isUserAuthorized(userId) {
-    const { data, error } = await supabase
-        .from('authorized_users')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('status', 'active')
-        .single();
-    
-    if (error && error.code !== 'PGRST116') { // PGRST116 = not found
+    try {
+        const row = await queryOne(
+            "SELECT id FROM authorized_users WHERE user_id = $1 AND status = 'active'",
+            [userId]
+        );
+        return !!row;
+    } catch (error) {
         console.error('Error checking user authorization:', error);
         return false;
     }
-    
-    return !!data;
 }
 
 /**
  * Request user access - create pending request
  */
 export async function requestUserAccess(userId, username, chatId) {
-    // Check if already pending
-    const { data: existing } = await supabase
-        .from('pending_user_requests')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('status', 'pending')
-        .single();
-    
-    if (existing) {
-        return { success: false, message: 'Request already pending' };
-    }
-    
-    // Check if already authorized
-    const isAuthorized = await isUserAuthorized(userId);
-    if (isAuthorized) {
-        return { success: false, message: 'User already authorized' };
-    }
-    
-    // Create pending request
-    const { data, error } = await supabase
-        .from('pending_user_requests')
-        .insert({
-            user_id: userId,
-            username: username || null,
-            chat_id: chatId,
-            status: 'pending'
-        })
-        .select()
-        .single();
-    
-    if (error) {
+    try {
+        const existing = await queryOne(
+            "SELECT id FROM pending_user_requests WHERE user_id = $1 AND status = 'pending' LIMIT 1",
+            [userId]
+        );
+        if (existing) {
+            return { success: false, message: 'Request already pending' };
+        }
+
+        if (await isUserAuthorized(userId)) {
+            return { success: false, message: 'User already authorized' };
+        }
+
+        const row = await queryOne(
+            `INSERT INTO pending_user_requests (user_id, username, chat_id, status)
+             VALUES ($1, $2, $3, 'pending')
+             RETURNING id`,
+            [userId, username || null, chatId]
+        );
+
+        return { success: true, requestId: row.id };
+    } catch (error) {
         console.error('Error creating pending request:', error);
         return { success: false, message: 'Failed to create request' };
     }
-    
-    return { success: true, requestId: data.id };
+}
+
+/**
+ * Directly authorize a user without a pending request (used for the owner and
+ * for manual re-provisioning). Idempotent.
+ */
+export async function ensureAuthorized(userId, username, chatId, authorizedBy) {
+    try {
+        const row = await queryOne(
+            `INSERT INTO authorized_users (user_id, username, chat_id, authorized_by, status)
+             VALUES ($1, $2, $3, $4, 'active')
+             ON CONFLICT (user_id) DO UPDATE SET
+                username = COALESCE(EXCLUDED.username, authorized_users.username),
+                chat_id = EXCLUDED.chat_id,
+                status = 'active',
+                authorized_at = now()
+             RETURNING *`,
+            [userId, username || null, chatId, authorizedBy]
+        );
+        return { success: true, chatId: row.chat_id, username: row.username };
+    } catch (error) {
+        console.error('Error ensuring user authorization:', error);
+        return { success: false, message: 'Failed to authorize user' };
+    }
 }
 
 /**
  * Approve user access
  */
 export async function approveUser(userId, approvedBy) {
-    // Get pending request
-    const { data: request, error: requestError } = await supabase
-        .from('pending_user_requests')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('status', 'pending')
-        .single();
-    
-    if (requestError || !request) {
-        return { success: false, message: 'Pending request not found' };
-    }
-    
-    // Add to authorized users
-    const { data: authorized, error: authError } = await supabase
-        .from('authorized_users')
-        .insert({
-            user_id: userId,
-            username: request.username,
-            chat_id: request.chat_id,
-            authorized_by: approvedBy
-        })
-        .select()
-        .single();
-    
-    if (authError) {
-        console.error('Error authorizing user:', authError);
+    try {
+        const request = await queryOne(
+            `SELECT * FROM pending_user_requests
+             WHERE user_id = $1 AND status = 'pending'
+             ORDER BY requested_at DESC
+             LIMIT 1`,
+            [userId]
+        );
+
+        if (!request) {
+            return { success: false, message: 'Pending request not found' };
+        }
+
+        const authorized = await queryOne(
+            `INSERT INTO authorized_users (user_id, username, chat_id, authorized_by, status)
+             VALUES ($1, $2, $3, $4, 'active')
+             ON CONFLICT (user_id) DO UPDATE SET
+                username = EXCLUDED.username,
+                chat_id = EXCLUDED.chat_id,
+                authorized_by = EXCLUDED.authorized_by,
+                status = 'active',
+                authorized_at = now()
+             RETURNING *`,
+            [userId, request.username, request.chat_id, approvedBy]
+        );
+
+        await query(
+            "UPDATE pending_user_requests SET status = 'approved' WHERE user_id = $1 AND status = 'pending'",
+            [userId]
+        );
+
+        return {
+            success: true,
+            chatId: authorized.chat_id,
+            username: authorized.username
+        };
+    } catch (error) {
+        console.error('Error authorizing user:', error);
         return { success: false, message: 'Failed to authorize user' };
     }
-    
-    // Update pending request status
-    await supabase
-        .from('pending_user_requests')
-        .update({ status: 'approved' })
-        .eq('user_id', userId);
-    
-    return { 
-        success: true, 
-        chatId: authorized.chat_id,
-        username: authorized.username 
-    };
 }
 
 /**
  * Reject user access
  */
 export async function rejectUser(userId, rejectedBy) {
-    // Update pending request status
-    const { data: request, error } = await supabase
-        .from('pending_user_requests')
-        .update({ status: 'rejected' })
-        .eq('user_id', userId)
-        .eq('status', 'pending')
-        .select()
-        .single();
-    
-    if (error || !request) {
+    try {
+        const request = await queryOne(
+            `UPDATE pending_user_requests SET status = 'rejected'
+             WHERE user_id = $1 AND status = 'pending'
+             RETURNING *`,
+            [userId]
+        );
+
+        if (!request) {
+            return { success: false, message: 'Pending request not found' };
+        }
+
+        return {
+            success: true,
+            chatId: request.chat_id,
+            username: request.username
+        };
+    } catch (error) {
+        console.error('Error rejecting user:', error);
         return { success: false, message: 'Pending request not found' };
     }
-    
-    return { 
-        success: true, 
-        chatId: request.chat_id,
-        username: request.username 
-    };
 }
 
 /**
  * Get all authorized user chat IDs
  */
 export async function getAllAuthorizedUsers() {
-    const { data, error } = await supabase
-        .from('authorized_users')
-        .select('chat_id, user_id, username')
-        .eq('status', 'active');
-    
-    if (error) {
+    try {
+        return await query(
+            "SELECT chat_id, user_id, username FROM authorized_users WHERE status = 'active'"
+        );
+    } catch (error) {
         console.error('Error getting authorized users:', error);
         return [];
     }
-    
-    return data || [];
 }
 
 /**
  * Get pending user requests
  */
 export async function getPendingRequests() {
-    const { data, error } = await supabase
-        .from('pending_user_requests')
-        .select('*')
-        .eq('status', 'pending')
-        .order('requested_at', { ascending: false });
-    
-    if (error) {
+    try {
+        return await query(
+            "SELECT * FROM pending_user_requests WHERE status = 'pending' ORDER BY requested_at DESC"
+        );
+    } catch (error) {
         console.error('Error getting pending requests:', error);
         return [];
     }
-    
-    return data || [];
 }
-
