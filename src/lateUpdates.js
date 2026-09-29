@@ -2,13 +2,14 @@ import { getTodayAttendance, upsertAttendance } from './database.js';
 import { config } from './config.js';
 import { notifyOnAttendanceUpdate } from './notifications.js';
 import { storeStudentNames } from './students.js';
+import { normalizeLeadingToken } from './textNormalize.js';
 
 /**
  * Parse late update message: <ClassName> <StudentName> keldi/ketdi
  * Example: "9A Jobirxon keldi" or "9A Bilolxon Oripov keldi" or "9A Jobirxon ketdi"
  */
 export function parseLateUpdate(text) {
-    const normalized = text.trim().replace(/\s+/g, ' ');
+    const normalized = normalizeLeadingToken(text.trim().replace(/\s+/g, ' '));
     console.log('Parsing late update:', normalized);
 
     const pattern = /^([A-Z0-9]+)\s+(.+)\s+(keldi|ketdi)$/i;

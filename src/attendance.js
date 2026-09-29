@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { notifyOnAttendanceUpdate } from './notifications.js';
 import { storeStudentNames } from './students.js';
 import { generateFullSummary } from './summaryGenerator.js';
+import { normalizeLeadingToken } from './textNormalize.js';
 
 /**
  * Parse attendance message format: 
@@ -28,7 +29,7 @@ export function parseAttendanceMessage(text) {
     }
     
     // First line should contain class name and numbers
-    const firstLine = lines[0];
+    const firstLine = normalizeLeadingToken(lines[0]);
     console.log('First line:', firstLine);
     const pattern = /^([A-Z0-9]+)\s+(\d+)\/(\d+)(?:\s+(.+))?$/i;
     const match = firstLine.match(pattern);
