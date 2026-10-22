@@ -1,12 +1,17 @@
 {
   "name": "lsl-bot",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Telegram Attendance Bot for LSL School",
   "main": "src/bot.js",
   "type": "module",
   "scripts": {
     "start": "node src/bot.js",
-    "dev": "node --watch src/bot.js"
+    "dev": "node --watch src/bot.js",
+    "test": "node --test --test-concurrency=1",
+    "db:migrate": "node scripts/migrate.js",
+    "roster:import": "node scripts/import-roster.js",
+    "roster:check": "node scripts/check-rosters.js",
+    "release:pack": "node scripts/pack-release.js"
   },
   "keywords": [
     "telegram",
@@ -21,5 +26,8 @@
     "node-cron": "^3.0.3",
     "pg": "^8.23.0",
     "telegraf": "^4.15.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10"
   }
 }

@@ -1,8 +1,9 @@
 import cron from 'node-cron';
 import { sendReminder } from './reminders.js';
 import { sendDailySummary } from './summary.js';
-import { isDayOff } from './database.js';
+import { isDayOff, getTashkentTime } from './database.js';
 import { config } from './config.js';
+import { sendWeeklyStudentReport } from './studentReports.js';
 
 let botInstance = null;
 let chatId = null;
@@ -20,6 +21,17 @@ export function initScheduler(bot, targetChatId) {
     botInstance = bot;
     chatId = targetChatId;
     initialized = true;
+
+    if (config.studentAttendanceEnabled) {
+        // Retry transient failures every ten minutes on Saturday afternoon.
+        // Delivery is persisted so successful reports are not repeated on restart.
+        cron.schedule('*/10 16-23 * * 6', async () => {
+            const time = getTashkentTime();
+            if (time.hour === 16 && time.minute < 10) return;
+            try { await sendWeeklyStudentReport(botInstance, chatId); }
+            catch (error) { console.error('Weekly student report failed:', error.message); }
+        }, { timezone: config.timezone });
+    }
     
     // Schedule reminders at 09:30, 09:45, 10:00 (Asia/Tashkent time)
     config.reminderTimes.forEach(({ hour, minute }) => {

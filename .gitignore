@@ -31,3 +31,8 @@ build/
 
 # Claude Code local settings
 .claude/
+rosters/
+
+# CI release artifacts
+release.tar.gz
+__pycache__/

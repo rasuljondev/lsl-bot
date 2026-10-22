@@ -7,6 +7,7 @@ export const config = {
     databaseUrl: process.env.DATABASE_URL,
     webhookUrl: process.env.WEBHOOK_URL || '',
     port: parseInt(process.env.PORT || '3000', 10),
+    studentAttendanceEnabled: process.env.STUDENT_ATTENDANCE_ENABLED === 'true',
     timezone: 'Asia/Tashkent',
 
     // Fixed class list

@@ -1,0 +1,10 @@
+[
+  {
+    "className": "6A",
+    "students": [
+      { "id": "example-001", "fullName": "Ali Karimov", "aliases": [] },
+      { "id": "example-002", "fullName": "Ali Rahimov", "aliases": [] },
+      { "id": "example-003", "fullName": "Bobur Oripov", "aliases": ["Bobir"] }
+    ]
+  }
+]

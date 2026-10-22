@@ -1,5 +1,13 @@
 # Telegram Attendance Bot
 
+[Current GitHub/Hetzner operations](OPERATIONS.md) describes the active deployment layout and push workflow.
+
+Student attendance release 1.2.0 runs behind `STUDENT_ATTENDANCE_ENABLED`.
+See [student workflow and roster format](STUDENT_ATTENDANCE.md) and
+[deployment and rollback](DEPLOYMENT.md). Official rosters are required before
+activation. Older Supabase/Render instructions below describe the original setup;
+the current deployment uses PostgreSQL and PM2 on Hetzner.
+
 A Telegram bot for tracking daily student attendance at LSL School. The bot parses attendance messages from teachers, tracks daily statistics, sends reminders, and generates summaries.
 
 ## Features

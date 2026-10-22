@@ -1,16 +1,35 @@
 import { Telegraf, Markup } from 'telegraf';
 import express from 'express';
+import { isEntryPoint } from './entrypoint.js';
 import { config } from './config.js';
-import { isWithinActiveHours, getTashkentTime, isDayOff, pool } from './database.js';
+import { isWithinActiveHours, getTashkentTime, getTodayDate, isDayOff, pool } from './database.js';
 import { updateAttendanceMessage } from './attendance.js';
 import { processLateUpdate } from './lateUpdates.js';
 import { initScheduler } from './scheduler.js';
 import { isGroupAuthorized, isUserAuthorized, requestUserAccess, approveUser, rejectUser, ensureAuthorized } from './permissions.js';
 import { isOwner, cleanTodayData, generateDailyReport, generateWeeklyReport, generateMonthlyReport } from './admin.js';
 import { handleDayOffCommand, toggleDayOffToday } from './dayoff.js';
+import { handleStudentMessage, handleStudentCallback, verifyStudentSetup } from './studentAttendance.js';
+import { weeklyStudentReport, studentHistory, handleStudentHistory, sendLongMessage, classRosterReport } from './studentReports.js';
+import { weekRange } from './studentMatching.js';
 
-const bot = new Telegraf(config.botToken);
-const app = express();
+export const bot = new Telegraf(config.botToken);
+export const app = express();
+
+function studentReportButtons() {
+    if (!config.studentAttendanceEnabled) return [];
+    return [
+        [Markup.button.callback('📋 Haftalik kelmaganlar', 'students_absent_current')],
+        [Markup.button.callback('⏰ Haftalik kech qolganlar', 'students_late_current')],
+        [Markup.button.callback('👤 O‘quvchi tarixi', 'students_history_help')],
+        [Markup.button.callback('📋 Sinf ro‘yxati', 'students_roster_help')]
+    ];
+}
+
+async function canReadStudentReports(ctx) {
+    // Individual histories are available privately to the owner/approved users.
+    return ctx.chat?.type === 'private' && (isOwner(ctx.from.id) || await isUserAuthorized(ctx.from.id));
+}
 
 // Middleware to parse JSON
 app.use(express.json());
@@ -53,6 +72,15 @@ bot.command('start', async (ctx) => {
                     `✅ Yangi ma'lumot yuborilsa, eski ma'lumot avtomatik yangilanadi.\n` +
                     `⏰ 09:15 da umumiy hisobot yuboriladi.`;
                 await ctx.reply(groupInstructions);
+                if (config.studentAttendanceEnabled) {
+                    await ctx.reply('👤 Rasmiy ro‘yxat bo‘yicha davomat:\n' +
+                        '6A kelmaganlar:\nAli Karimov\nBobur Oripov\n\n' +
+                        'Yoki: 6A 21/19 va ikki kelmagan o‘quvchining ismi.\n' +
+                        'Hamma kelgan bo‘lsa: 6A hamma keldi\n' +
+                        'Kechroq kelganda: 6A Ali keldi\n' +
+                        'Erta ketganda: 6A Ali ketdi\n' +
+                        'Bir xil ism uchrasa, bot tanlash uchun tugmalar beradi.');
+                }
             } else {
                 await ctx.reply('❌ Bu guruh ID si ruxsat etilmagan.');
             }
@@ -81,6 +109,7 @@ bot.command('start', async (ctx) => {
 🔧 Admin funksiyalar:`;
 
             const adminKeyboard = Markup.inlineKeyboard([
+                ...studentReportButtons(),
                 [Markup.button.callback('📴 Bugun dam olish kuni (yoqish/o\'chirish)', 'admin_dayoff_toggle')],
                 [Markup.button.callback('🗑️ Bugungi ma\'lumotlarni tozalash', 'admin_cleandata')],
                 [Markup.button.callback('📊 Kunlik hisobot', 'admin_report_daily')],
@@ -108,6 +137,7 @@ bot.command('start', async (ctx) => {
         if (isAuthorized) {
             // Show report buttons for authorized users
             const userKeyboard = Markup.inlineKeyboard([
+                ...studentReportButtons(),
                 [Markup.button.callback('📊 Kunlik hisobot', 'user_report_daily')],
                 [Markup.button.callback('📈 Haftalik hisobot', 'user_report_weekly')],
                 [Markup.button.callback('📉 Oylik hisobot', 'user_report_monthly')]
@@ -141,6 +171,52 @@ bot.on('callback_query', async (ctx) => {
         await ctx.answerCbQuery();
         const data = ctx.callbackQuery.data;
         const userId = ctx.from.id;
+
+        if (config.studentAttendanceEnabled && data.startsWith('st:')) {
+            // Sessions also verify chat, original submitter, date, roster and expiry.
+            await handleStudentCallback(ctx);
+            return;
+        }
+        if (config.studentAttendanceEnabled && (data.startsWith('students_') || data.startsWith('sh:'))) {
+            if (!await canReadStudentReports(ctx)) {
+                await ctx.reply('Bu hisobot faqat ruxsat berilgan foydalanuvchilarga botning shaxsiy chatida ochiladi.');
+                return;
+            }
+            const history = data.match(/^sh:(\d+)$/);
+            if (data === 'students_roster_help') {
+                const counts = (await pool.query('SELECT count(*)::int AS students FROM roster_students WHERE active')).rows[0];
+                await ctx.reply(`Sinfni tanlang. Jami: ${counts.students} o‘quvchi.`, Markup.inlineKeyboard(
+                    config.classes.map(name => Markup.button.callback(name, `students_roster_${name}`)), { columns: 4 }));
+                return;
+            }
+            const roster = data.match(/^students_roster_(\d{1,2}[AB])$/);
+            if (roster && config.classes.includes(roster[1])) {
+                await sendLongMessage(ctx.telegram, ctx.chat.id, await classRosterReport(roster[1]));
+                return;
+            }
+            if (data === 'students_history_help') {
+                await ctx.reply('O‘quvchi tarixini ko‘rish uchun yuboring:\n/oquvchi 6A Ali Karimov\n\nSinf va ism yoki familiya yetarli. Oxirgi 90 kun ko‘rsatiladi.');
+                return;
+            }
+            if (history) {
+                await sendLongMessage(ctx.telegram, ctx.chat.id, await studentHistory(Number(history[1])));
+                return;
+            }
+            const report = data.match(/^students_(absent|late)_(current|previous)$/);
+            if (!report) return;
+            let range = weekRange(getTodayDate());
+            if (report[2] === 'previous') {
+                const end = new Date(`${range.start}T00:00:00Z`);
+                end.setUTCDate(end.getUTCDate() - 1);
+                range = weekRange(end.toISOString().slice(0, 10));
+            }
+            await sendLongMessage(ctx.telegram, ctx.chat.id, await weeklyStudentReport(report[1], range, true));
+            await ctx.reply('Boshqa davr:', Markup.inlineKeyboard([
+                [Markup.button.callback('Shu hafta', `students_${report[1]}_current`),
+                    Markup.button.callback('O‘tgan hafta', `students_${report[1]}_previous`)]
+            ]));
+            return;
+        }
         
         // Request permission button
         if (data === 'request_permission') {
@@ -333,6 +409,12 @@ bot.command('cleandata', async (ctx) => {
 
 bot.command('dayoff', (ctx) => handleDayOffCommand(ctx, bot));
 
+bot.command('oquvchi', async ctx => {
+    if (!config.studentAttendanceEnabled || !await canReadStudentReports(ctx)) return;
+    try { await handleStudentHistory(ctx); }
+    catch (error) { console.error('Student history failed:', error.message); await ctx.reply('Hisobotni olishda xatolik. Qayta urinib ko‘ring.'); }
+});
+
 bot.command('report', async (ctx) => {
     if (!isOwner(ctx.from.id)) {
         return;
@@ -448,6 +530,11 @@ bot.on('message', async (ctx) => {
             return;
         }
 
+        if (config.studentAttendanceEnabled) {
+            await handleStudentMessage(ctx);
+            return;
+        }
+
         // Try to parse as attendance message first
         // Check if it's an update (existing record) or new submission
         const attendanceProcessed = await updateAttendanceMessage(messageText, ctx.chat.id, bot);
@@ -505,7 +592,9 @@ app.get('/health', async (req, res) => {
     } catch (error) {
         db = 'error';
     }
-    res.json({ status: 'ok', db, time: new Date().toISOString(), version: 'hetzner-pg-2026-09-02' });
+    res.status(db === 'ok' ? 200 : 503).json({ status: db === 'ok' ? 'ok' : 'error', db,
+        time: new Date().toISOString(), version: 'student-attendance-1.2.0', studentAttendanceEnabled: config.studentAttendanceEnabled,
+        schoolDay: { start: '08:30', end: '16:00', timezone: config.timezone } });
 });
 
 const WEBHOOK_WATCHDOG_INTERVAL_MS = 2 * 60 * 1000;
@@ -534,76 +623,87 @@ function startWebhookWatchdog() {
 const PORT = config.port || process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 
-app.listen(PORT, HOST, async () => {
-    console.log(`Server running on ${HOST}:${PORT}`);
-    console.log(`Webhook URL: /webhook/${config.botToken}`);
+export async function start() {
+    if (config.studentAttendanceEnabled) await verifyStudentSetup();
+    const server = app.listen(PORT, HOST, async () => {
+        console.log(`Server running on ${HOST}:${PORT}`);
+        console.log(`Webhook URL: /webhook/${config.botToken}`);
 
-    // Verify database connectivity on startup (non-fatal, just log)
-    try {
-        await pool.query('SELECT 1');
-        console.log('PostgreSQL connection OK');
-    } catch (err) {
-        console.error('PostgreSQL connection FAILED at startup:', err.message);
-    }
+        // Verify database connectivity on startup (non-fatal, just log)
+        try {
+            await pool.query('SELECT 1');
+            console.log('PostgreSQL connection OK');
+        } catch (err) {
+            console.error('PostgreSQL connection FAILED at startup:', err.message);
+        }
 
-    // Arm the cron jobs immediately. Waiting for a group message meant that
-    // after any restart the reminders and summaries silently never fired.
-    initScheduler(bot, config.allowedGroupId);
+        // Arm the cron jobs immediately. Waiting for a group message meant that
+        // after any restart the reminders and summaries silently never fired.
+        initScheduler(bot, config.allowedGroupId);
     
-    // If webhook URL is provided, set it up (non-blocking with retry)
-    if (config.webhookUrl) {
-        // Remove trailing slash if present to avoid double slashes
-        const baseUrl = config.webhookUrl.replace(/\/+$/, '');
-        const webhookUrl = `${baseUrl}/webhook/${config.botToken}`;
-        console.log(`Setting webhook to: ${webhookUrl}`);
+        // If webhook URL is provided, set it up (non-blocking with retry)
+        if (config.webhookUrl) {
+            // Remove trailing slash if present to avoid double slashes
+            const baseUrl = config.webhookUrl.replace(/\/+$/, '');
+            const webhookUrl = `${baseUrl}/webhook/${config.botToken}`;
+            console.log(`Setting webhook to: ${webhookUrl}`);
         
-        // Retry function for webhook setup
-        const setupWebhook = async (retries = 3, delay = 5000) => {
-            for (let i = 0; i < retries; i++) {
-                try {
-                    await bot.telegram.setWebhook(webhookUrl);
-                    console.log('Webhook set successfully');
+            // Retry function for webhook setup
+            const setupWebhook = async (retries = 3, delay = 5000) => {
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        await bot.telegram.setWebhook(webhookUrl);
+                        console.log('Webhook set successfully');
                     
-                    // Verify webhook info
-                    const info = await bot.telegram.getWebhookInfo();
-                    console.log('Webhook info:', JSON.stringify(info, null, 2));
-                    return;
-                } catch (err) {
-                    console.error(`Webhook setup attempt ${i + 1} failed:`, err.message);
-                    if (i < retries - 1) {
-                        console.log(`Retrying in ${delay / 1000} seconds...`);
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                    } else {
-                        console.error('Failed to set webhook after', retries, 'attempts');
-                        console.error('You can manually set it using:');
-                        console.error(`curl -X POST "https://api.telegram.org/bot${config.botToken}/setWebhook?url=${webhookUrl}"`);
+                        // Verify webhook info
+                        const info = await bot.telegram.getWebhookInfo();
+                        console.log('Webhook info:', JSON.stringify(info, null, 2));
+                        return;
+                    } catch (err) {
+                        console.error(`Webhook setup attempt ${i + 1} failed:`, err.message);
+                        if (i < retries - 1) {
+                            console.log(`Retrying in ${delay / 1000} seconds...`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                        } else {
+                            console.error('Failed to set webhook after', retries, 'attempts');
+                            console.error('You can manually set it using:');
+                            console.error(`curl -X POST "https://api.telegram.org/bot${config.botToken}/setWebhook?url=${webhookUrl}"`);
+                        }
                     }
                 }
-            }
-        };
+            };
         
-        // Set webhook asynchronously (don't block server startup)
-        setupWebhook().catch(err => {
-            console.error('Webhook setup error:', err);
-        });
-    } else {
-        console.log('WEBHOOK_URL not set. Starting in long-polling mode.');
-        // launch() removes any existing webhook, then starts getUpdates polling
-        bot.launch()
-            .then(() => console.log('Long-polling loop ended'))
-            .catch((err) => {
-                // A foreign setWebhook call kills polling with a 409. Exiting lets
-                // pm2 restart us into a clean polling loop instead of staying
-                // "online" but deaf to every message.
-                console.error('Long-polling failed, exiting for restart:', err.message);
-                process.exit(1);
+            // Set webhook asynchronously (don't block server startup)
+            setupWebhook().catch(err => {
+                console.error('Webhook setup error:', err);
             });
+        } else {
+            console.log('WEBHOOK_URL not set. Starting in long-polling mode.');
+            // launch() removes any existing webhook, then starts getUpdates polling
+            bot.launch()
+                .then(() => console.log('Long-polling loop ended'))
+                .catch((err) => {
+                    // A foreign setWebhook call kills polling with a 409. Exiting lets
+                    // pm2 restart us into a clean polling loop instead of staying
+                    // "online" but deaf to every message.
+                    console.error('Long-polling failed, exiting for restart:', err.message);
+                    process.exit(1);
+                });
 
-        startWebhookWatchdog();
-    }
-});
+            startWebhookWatchdog();
+        }
+    });
 
-// Graceful shutdown
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+    // Graceful shutdown
+    process.once('SIGINT', () => bot.stop('SIGINT'));
+    process.once('SIGTERM', () => bot.stop('SIGTERM'));
+    return server;
+}
+
+if (isEntryPoint(import.meta.url)) {
+    start().catch(error => {
+        console.error('Bot startup failed:', error.message);
+        process.exit(1);
+    });
+}
 
