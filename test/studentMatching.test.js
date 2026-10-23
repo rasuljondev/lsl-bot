@@ -90,6 +90,17 @@ test('Muhammad and Muhammadali remain distinct even when only Muhammadali is in 
     assert.equal(matchStudent('Bobur', [{ id: 3, full_name: 'Axmedov Boburshoh' }]).student, undefined);
 });
 
+test('Uzbek xon, jon and bek endings share a base without merging compound names', () => {
+    const students = [{ id: 1, full_name: 'Nosirov Jobirxon' },
+        { id: 2, full_name: 'Karimov Qobiljon' }, { id: 3, full_name: 'Aliyev Rasulbek' }];
+    for (const name of ['Jobir', 'Jobirxon', 'Jobirjon', 'Jobirbek', 'Jobir Nosirov']) assert.equal(matchStudent(name, students).student.id, 1);
+    for (const name of ['Qobil', 'Qobiljon', 'Qobilbek', 'Qobilxon', 'Karimov Qobilbek']) assert.equal(matchStudent(name, students).student.id, 2);
+    for (const name of ['Rasul', 'Rasuljon', 'Rasulbek', 'Rasulxon', 'Rasuljon Aliyev']) assert.equal(matchStudent(name, students).student.id, 3);
+    assert.equal(matchStudent('Rasul', [...students, { id: 4, full_name: 'Other Rasuljon' }]).kind, 'ambiguous');
+    assert.equal(matchStudent('Muhammad', [{ id: 5, full_name: 'Valiyev Muhammadalibek' }]).student, undefined);
+    assert.equal(matchStudent('Bek', [{ id: 6, full_name: 'A Bek' }]).student.id, 6);
+});
+
 test('counts attached to a name and common absence suffixes are parsed', () => {
     assert.equal(parseStudentMessage('1A 21/20Adhamov Horun').present, 20);
     assert.deepEqual(parseStudentMessage('6B 19/18\nKelmaganlar:\nOdilov Saidabdurahmon kelmadi').names, ['Odilov Saidabdurahmon']);

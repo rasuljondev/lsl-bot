@@ -33,15 +33,18 @@ function variants(student) {
     return [student.full_name, ...(student.aliases || [])].map(normalizeName).filter(Boolean);
 }
 
-// Explicit school name variants only. A shared prefix does not imply identity.
+// Uzbek honorific endings and explicit school variants; never arbitrary prefixes.
 const equivalentNames = [
     ['madina', 'madinabonu'],
     ['bobur', 'boburmizo', 'boburmiroz', 'boburmirzo'],
-    ['mansur', 'mansurjon'],
-    ['ilyos', 'ilyosbek'],
 ];
+function nameBase(name) {
+    const base = name.replace(/(?:xon|jon|bek)$/, '');
+    return base.length >= 3 ? base : name;
+}
 function equivalentName(a, b) {
-    return a === b || equivalentNames.some(group => group.includes(a) && group.includes(b));
+    const first = nameBase(a), second = nameBase(b);
+    return first === second || equivalentNames.some(group => group.includes(first) && group.includes(second));
 }
 
 export function matchStudent(input, roster) {
