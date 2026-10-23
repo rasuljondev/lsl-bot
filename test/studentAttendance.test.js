@@ -41,6 +41,8 @@ before(async () => {
     const minutesMigration = await fs.readFile(new URL('../sql/migrations/003_attendance_minutes.sql', import.meta.url), 'utf8');
     await db.exec(minutesMigration);
     await db.exec(minutesMigration);
+    await db.exec(await fs.readFile(new URL('../sql/migrations/004_partial_attendance.sql', import.meta.url), 'utf8'));
+    await db.exec(await fs.readFile(new URL('../sql/migrations/004_partial_attendance.sql', import.meta.url), 'utf8'));
     config.activeHours = { start: { hour: 0, minute: 0 }, end: { hour: 23, minute: 59 } };
 });
 after(async () => { await db.close(); await pool.end(); mock.timers.reset(); });
@@ -79,11 +81,11 @@ test('new rosters never promote old collected names; import is idempotent', asyn
     assert.equal(getTodayDate(), date);
 });
 
-test('numbers-only waits for names and reply finalizes atomically with spelling correction', async () => {
+test('numbers-only saves counts immediately and reply completes identities', async () => {
     const ctx = await submit('6A 3/2');
     assert.match(ctx.replies[0].text, /1 nafar/);
     assert.equal((await attendance()).length, 0);
-    assert.equal((await run('SELECT * FROM attendance_logs')).rowCount, 0);
+    assert.equal((await run('SELECT * FROM attendance_logs')).rows[0].present_count, 2);
     const session = await openSession();
     const reply = context('Orpiov');
     reply.message.reply_to_message = { message_id: Number(session.prompt_id) };
@@ -93,28 +95,26 @@ test('numbers-only waits for names and reply finalizes atomically with spelling 
     assert.equal((await run('SELECT * FROM attendance_logs')).rows[0].present_count, 2);
 });
 
-test('ambiguous first names require the original teacher and reject duplicate/stale clicks', async () => {
-    const ctx = await submit('6A 3/2\nAli');
+test('ambiguous names accept counts; only the original teacher can clarify identities', async () => {
+    await submit('6A 3/2\nAli');
     assert.equal((await attendance()).length, 0);
-    const buttons = ctx.replies[0].options.reply_markup.inline_keyboard;
-    assert.equal(buttons.length, 2);
-    const data = buttons[0][0].callback_data;
-    assert.ok(Buffer.byteLength(data) <= 64);
-    const stranger = callback(data, 999);
-    await handleStudentCallback(stranger);
+    assert.equal((await run('SELECT present_count FROM attendance_logs')).rows[0].present_count, 2);
+    const session = await openSession();
+    const stranger = context('Karimov', 999);
+    stranger.message.reply_to_message = { message_id: Number(session.prompt_id) };
+    await handleStudentMessage(stranger);
     assert.match(stranger.replies[0].text, /Faqat/);
-    assert.equal((await attendance()).length, 0);
-    const selected = callback(data);
-    await handleStudentCallback(selected);
+    const reply = context('Karimov');
+    reply.message.reply_to_message = { message_id: Number(session.prompt_id) };
+    await handleStudentMessage(reply);
     assert.equal((await attendance())[0].status, 'absent');
-    const eventCount = (await run('SELECT count(*)::int AS n FROM attendance_events')).rows[0].n;
-    await handleStudentCallback(callback(data));
-    assert.equal((await run('SELECT count(*)::int AS n FROM attendance_events')).rows[0].n, eventCount);
 });
 
-test('unknown name does not save partial records; replies can correct it', async () => {
+test('one unknown name keeps the count and other matched absences', async () => {
     await submit('6A 3/1\nKarimov\nUnknown');
-    assert.equal((await attendance()).length, 0);
+    assert.equal((await attendance()).length, 1);
+    assert.equal((await attendance())[0].status, 'absent');
+    assert.equal((await run('SELECT present_count FROM attendance_logs')).rows[0].present_count, 1);
     const session = await openSession();
     const reply = context('Karimov\nOripov');
     reply.message.reply_to_message = { message_id: Number(session.prompt_id) };
@@ -122,24 +122,29 @@ test('unknown name does not save partial records; replies can correct it', async
     assert.equal((await attendance()).filter(a => a.status === 'absent').length, 2);
 });
 
-test('ambiguous selection followed by unknown name can request a reply from a callback', async () => {
+test('ambiguous and unknown names leave identities unresolved without guessing present students', async () => {
     const ctx = await submit('6A 3/1\nAli\nUnknown');
-    const chosen = callback(ctx.replies[0].options.reply_markup.inline_keyboard[0][0].callback_data);
-    await handleStudentCallback(chosen);
-    assert.equal(chosen.replies[0].options.reply_markup.force_reply, true);
+    assert.equal(ctx.replies[0].options.reply_markup.force_reply, true);
     assert.ok((await openSession()).prompt_id);
     assert.equal((await attendance()).length, 0);
+    const row = (await run('SELECT * FROM attendance_logs')).rows[0];
+    assert.equal(row.present_count, 1);
+    assert.equal(row.names_complete, false);
+    assert.deepEqual(row.unresolved_names, ['Ali', 'Unknown']);
 });
 
-test('duplicate absent names and inconsistent counts cannot corrupt totals', async () => {
+test('duplicate names do not double-count and reported class totals survive roster differences', async () => {
     await submit('6A 3/1\nBobur\nOripov');
-    assert.equal((await attendance()).length, 0);
-    assert.equal(await openSession(), undefined);
-    const bad = await submit('6A 4/3\nBobur');
-    assert.match(bad.replies[0].text, /3 o‘quvchi/);
-    const missing = await submit('6A 3/1\nBobur');
-    assert.match(missing.replies[0].text, /2 nafar/);
-    assert.equal((await attendance()).length, 0);
+    assert.equal((await attendance()).length, 1);
+    assert.equal((await run('SELECT present_count FROM attendance_logs')).rows[0].present_count, 1);
+    const mismatch = await submit('6A 4/3\nBobur');
+    assert.match(mismatch.replies[0].text, /4\/3/);
+    assert.equal((await run('SELECT total_students FROM attendance_logs')).rows[0].total_students, 4);
+    await submit('6A 3/1\nBobur');
+    assert.equal((await attendance()).filter(r => r.status_confirmed).length, 1);
+    const bad = await submit('6A 3/4');
+    assert.match(bad.replies[0].text, /tekshirib/);
+    assert.equal((await run('SELECT present_count FROM attendance_logs')).rows[0].present_count, 1);
 });
 
 test('late arrival removes absence, duplicate arrivals/departures do not change counts', async () => {
@@ -164,7 +169,9 @@ test('late arrival removes absence, duplicate arrivals/departures do not change 
 });
 
 test('stored minutes use original arrival time even when name clarification is delayed', async () => {
+    mock.timers.setTime(Date.parse('2026-10-17T03:30:00Z'));
     await submit('6A kelmaganlar: Karimov');
+    mock.timers.setTime(Date.parse('2026-10-17T04:00:00Z'));
     const arrived = context('6A Ali keldi');
     arrived.message.date = Date.parse('2026-10-17T03:45:00Z') / 1000;
     await handleStudentMessage(arrived);
@@ -181,7 +188,9 @@ test('stored minutes use original arrival time even when name clarification is d
 });
 
 test('departure and return preserve late minutes and aggregate only the missed interval', async () => {
+    mock.timers.setTime(Date.parse('2026-10-17T03:30:00Z'));
     await submit('6A kelmaganlar: Oripov');
+    mock.timers.setTime(Date.parse('2026-10-17T04:00:00Z'));
     const arrival = context('6A Bobur keldi');
     arrival.message.date = Date.parse('2026-10-17T03:45:00Z') / 1000;
     await handleStudentMessage(arrival);
@@ -222,11 +231,13 @@ test('an older movement cannot overwrite a more recent departure', async () => {
     assert.equal((await attendance())[2].status, 'left');
 });
 
-test('new submissions invalidate older clarification buttons; Telegram redelivery is ignored', async () => {
-    const ctx = await submit('6A 3/2\nAli');
-    const data = ctx.replies[0].options.reply_markup.inline_keyboard[0][0].callback_data;
+test('new submissions invalidate older clarification replies; redelivery is ignored', async () => {
+    await submit('6A 3/2\nAli');
+    const session = await openSession();
     const newer = await submit('6A hamma keldi');
-    await handleStudentCallback(callback(data));
+    const oldReply = context('Karimov');
+    oldReply.message.reply_to_message = { message_id: Number(session.prompt_id) };
+    assert.equal(await handleStudentMessage(oldReply), false);
     assert.equal((await attendance()).filter(a => a.status === 'absent').length, 0);
     const events = (await run('SELECT * FROM attendance_events')).rowCount;
     await handleStudentMessage(newer);
@@ -241,16 +252,20 @@ test('unknown roster, arrival before daily report and day-off recording are reje
     assert.equal((await attendance()).length, 0);
 });
 
-test('expired and cross-chat clarification cannot save attendance', async () => {
-    const ctx = await submit('6A 3/2\nAli');
-    const data = ctx.replies[0].options.reply_markup.inline_keyboard[0][0].callback_data;
-    const wrongChat = callback(data);
+test('expired and cross-chat clarification cannot change accepted attendance', async () => {
+    await submit('6A 3/2\nAli');
+    const session = await openSession();
+    const wrongChat = context('Karimov');
+    wrongChat.message.reply_to_message = { message_id: Number(session.prompt_id) };
     wrongChat.chat.id = 12345;
-    await handleStudentCallback(wrongChat);
+    await handleStudentMessage(wrongChat);
     assert.equal((await attendance()).length, 0);
     await run("UPDATE attendance_pending SET expires_at='2000-01-01'");
-    await handleStudentCallback(callback(data));
+    const expired = context('Karimov');
+    expired.message.reply_to_message = { message_id: Number(session.prompt_id) };
+    await handleStudentMessage(expired);
     assert.equal((await attendance()).length, 0);
+    assert.equal((await run('SELECT present_count FROM attendance_logs')).rows[0].present_count, 2);
 });
 
 test('weekly reports exclude holidays and Sundays and have stable rankings', async () => {
@@ -282,7 +297,7 @@ test('clean today clears individual and class records, cancels pending, keeps au
     assert.equal((await attendance()).length, 0);
     assert.equal((await run('SELECT * FROM attendance_logs')).rowCount, 0);
     assert.equal(await openSession(), undefined);
-    assert.equal((await run('SELECT * FROM attendance_events WHERE new_status IS NULL')).rowCount, 3);
+    assert.equal((await run('SELECT * FROM attendance_events WHERE new_status IS NULL')).rowCount, 6);
 });
 
 test('roster changes preserve history, block mid-day imports, invalidate pending versions', async () => {
@@ -407,4 +422,35 @@ test('health endpoint reports database failure as unavailable', async () => {
         assert.equal(failed.status, 503);
         assert.equal((await failed.json()).db, 'error');
     } finally { pool.query = run; await new Promise(resolve => server.close(resolve)); }
+});
+
+test('partial reports keep aggregate counts through a matched arrival and never guess unknown identities', async () => {
+    await submit('6A 3/1\nKarimov\nUnknown');
+    await submit('6A Karimov keldi');
+    assert.equal((await run('SELECT present_count FROM attendance_logs')).rows[0].present_count, 2);
+    assert.equal((await attendance()).filter(row => row.status_confirmed).length, 1);
+    const noGuess = await submit('6A Bobur keldi');
+    assert.match(noGuess.replies[0].text, /oldingi holati aniqlanmagan/);
+    assert.equal((await run('SELECT present_count FROM attendance_logs')).rows[0].present_count, 2);
+});
+
+test('a new partial report removes stale identities from individual statistics without deleting history', async () => {
+    await submit('6A kelmaganlar: Oripov');
+    await submit('6A 3/2\nUnknown');
+    assert.equal((await attendance()).length, 3);
+    assert.ok((await attendance()).every(row => row.status_confirmed === false));
+    assert.doesNotMatch(await weeklyStudentReport('absent'), /Bobur Oripov/);
+    assert.match(await studentHistory(3), /Davomat qayd etilgan: 0 kun/);
+    await submit('6A 3/2\nKarimov');
+    assert.ok((await attendance()).every(row => row.status_confirmed));
+});
+
+test('stale class reports cannot replace newer accepted counts or cancel their correction session', async () => {
+    await submit('6A 3/1\nUnknown');
+    const session = await openSession();
+    const stale = context('6A hamma keldi');
+    stale.message.date = Date.parse('2026-10-17T03:50:00Z') / 1000;
+    await handleStudentMessage(stale);
+    assert.equal((await run('SELECT present_count FROM attendance_logs')).rows[0].present_count, 1);
+    assert.equal((await openSession()).id, session.id);
 });

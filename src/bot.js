@@ -593,7 +593,7 @@ app.get('/health', async (req, res) => {
         db = 'error';
     }
     res.status(db === 'ok' ? 200 : 503).json({ status: db === 'ok' ? 'ok' : 'error', db,
-        time: new Date().toISOString(), version: 'student-attendance-1.2.0', studentAttendanceEnabled: config.studentAttendanceEnabled,
+        time: new Date().toISOString(), version: 'student-attendance-1.2.1', studentAttendanceEnabled: config.studentAttendanceEnabled,
         schoolDay: { start: '08:30', end: '16:00', timezone: config.timezone } });
 });
 

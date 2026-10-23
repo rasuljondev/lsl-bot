@@ -42,3 +42,21 @@ The root SSH deployment gateway is installed from
 `lsl-tracker/deploy/hetzner_gateway.py`. Updating that privileged gateway requires
 an explicit reviewed server update; an ordinary project push does not overwrite
 it. Credentials for the tracker are `/etc/lsl-tracker/api.env` (mode 600).
+
+## Partial attendance and today's recovery (1.2.1)
+
+Apply additive migration `004_partial_attendance.sql` after a verified PostgreSQL
+backup and before starting 1.2.1. It preserves existing rows. Explicit class counts
+are independent of identity resolution; wrong or missing names do not block a
+report. `status_confirmed=false` preserves uncertain individual history while
+excluding it from current student statistics. Class summaries mark pending names.
+Roster spellings are never changed automatically.
+
+`scripts/recover-attendance.js --logfile /root/.pm2/logs/lsl-bot-out.log` previews
+today's latest saved reports. Add `--apply --output /protected/path/recovery.json`
+to recover, under the same per-class locks as live attendance. Existing later
+reports and movements are preserved. PM2 logs can recover numeric prefixes that
+were rejected before being saved; truncated names and exact Telegram timestamps
+are not invented. Log evidence has a null Telegram message ID. Recovery sends no
+Telegram notifications. Save its output with the database backup. Do not roll back
+to a version that ignores `status_confirmed` after accepting partial reports.

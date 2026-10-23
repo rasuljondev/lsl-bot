@@ -42,6 +42,19 @@ export function matchStudent(input, roster) {
         v === key || (!key.includes(' ') && v.split(' ').includes(key))));
     if (exact.length === 1) return { kind: 'exact', student: exact[0] };
     if (exact.length > 1) return { kind: 'ambiguous', candidates: exact };
+    const tokens = key.split(' ');
+    if (tokens.length === 2 && tokens.some(token => token.length === 1)) {
+        const initial = tokens.find(token => token.length === 1);
+        const surname = tokens.find(token => token.length > 1);
+        const initials = roster.filter(student => variants(student).some(value => {
+            const words = value.split(' ');
+            return surname && words.includes(surname) && words.some(word => word !== surname && word.startsWith(initial));
+        }));
+        if (initials.length === 1) return { kind: 'initial', student: initials[0] };
+        if (initials.length > 1) return { kind: 'ambiguous', candidates: initials };
+        // An unmatched initial must not fall through to fuzzy identity selection.
+        return { kind: 'unknown', candidates: [] };
+    }
     const maxDistance = key.length >= 8 ? 2 : key.length >= 4 ? 1 : 0;
     const scored = roster.map(student => ({ student, score: Math.min(...variants(student).flatMap(v =>
         (key.includes(' ') ? [v] : [v, ...v.split(' ')]).map(v => distance(key, v)))) }))
@@ -62,7 +75,7 @@ export function parseStudentMessage(text) {
     if (/^hamma\s+keldi[.!]?$/i.test(rest)) return { className, kind: 'report', names: [], expectedAbsent: 0 };
     const update = rest.match(/^(.+?)\s+(keldi|ketdi)$/i);
     if (update) return { className, kind: update[2].toLowerCase(), names: [update[1].trim()] };
-    const counts = rest.match(/^(\d+)\s*\/\s*(\d+)(?:\s+([\s\S]*))?$/);
+    const counts = rest.match(/^(\d+)\s*\/\s*(\d+)\s*([\s\S]*)$/);
     let namesText;
     let total, present;
     if (counts) {
@@ -72,7 +85,8 @@ export function parseStudentMessage(text) {
         // A class followed directly by names is also an absent-student list.
         namesText = absent ? absent[1] : rest;
     }
-    const names = namesText.split(/[\n,;]+/).map(n => n.replace(/^\s*[-•]\s*|^\s*\d+[.)]\s*/g, '').trim()).filter(Boolean);
+    const names = namesText.split(/[\n,;]+/).map(n => n.replace(/^\s*[-•]\s*|^\s*\d+[.)]\s*/g, '')
+        .replace(/^kelmaganlar\s*:\s*/i, '').replace(/\s+(?:kelmadi|kasal)[.!]?$/i, '').trim()).filter(Boolean);
     return { className, kind: 'report', names, total, present,
         expectedAbsent: counts ? total - present : undefined };
 }

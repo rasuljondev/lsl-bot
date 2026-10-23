@@ -1,6 +1,6 @@
-# Individual student attendance (1.2.0)
+# Individual student attendance (1.2.1)
 
-The 381-student roster is deployed; release 1.2.0 adds arrival/departure minutes.
+The 381-student roster is deployed; release 1.2.1 accepts class totals independently of incomplete names.
 Absence reasons are not included.
 
 The approved workbook source is `To'lov umumiysi`: 381 students across 22 classes.
@@ -19,8 +19,8 @@ Ali Karimov
 Bobur Oripov
 ```
 
-These students are absent; the other active students in the official class roster
-are present. A class without a completed submission has no individual attendance
+When every name resolves uniquely and the roster/counts agree, these students
+are absent and the other active roster students are present. A class without a completed submission has no individual attendance
 for that day. Missing submissions never create absences automatically.
 The `kelmaganlar:` label is optional: `6A` followed by names on separate lines
 also works.
@@ -33,16 +33,24 @@ Ali Karimov
 Bobur Oripov
 ```
 
-Both names are ABSENT students. Total must equal the official roster size; the
-number of distinct matched names must equal total minus present. Names belong on
-separate lines, or may be separated by commas or semicolons. Spaces alone do not
-separate students because a full name contains spaces.
+Both names are ABSENT students. Numeric total/present values are saved immediately,
+even if a name is missing, misspelled, ambiguous, or the total differs from the
+current roster. The bot flags roster differences for later review. Names belong
+on separate lines, or may be separated by commas or semicolons. Spaces alone do
+not separate full names.
 
-If only numbers are sent, the bot asks for absent names. Reply directly to that
-bot question with the complete list, one name per line. No partial record is saved.
-If the name count is wrong, reply with the complete corrected list, not just the
-additional names. A previous valid submission remains in force until its correction
-is complete.
+Every uniquely matched absence is accepted independently. `Nosirov I` or
+`Nosirov J` matches surname plus given-name initial only when unique in that
+class. Wrong/ambiguous names are retained as unresolved and do not block other
+students or class totals. Reply to the bot's clarification prompt with the full
+corrected list, or send a new class report later. A count-only report is already
+saved while names are pending.
+
+When identities are incomplete, unmatched students are not automatically marked
+present or absent. Existing individual rows are preserved but marked unconfirmed
+and excluded from individual statistics until clarified. Class totals remain in
+summaries. Matched keldi/ketdi updates adjust the accepted class count only from a
+confirmed prior student status; otherwise send a new numeric class report.
 
 ```text
 6A hamma keldi

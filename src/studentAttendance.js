@@ -46,7 +46,7 @@ async function setStatus(db, session, student, old, next) {
     const complete = next.timing_complete ?? old?.timing_complete ?? false;
     const movement = next.last_movement_at ?? old?.last_movement_at ?? null;
     const iso = value => value ? new Date(value).toISOString() : null;
-    if (old?.status === next.status && old?.arrived_late === next.arrived_late &&
+    if (old?.status_confirmed !== false && old?.status === next.status && old?.arrived_late === next.arrived_late &&
         iso(old.first_arrival_at) === iso(arrival) && iso(old.last_departure_at) === iso(departure) &&
         old.late_minutes === minutes && old.timing_complete === complete &&
         JSON.stringify(old.missing_intervals) === JSON.stringify(intervals) && iso(old.last_movement_at) === iso(movement)) return;
@@ -55,7 +55,7 @@ async function setStatus(db, session, student, old, next) {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) ON CONFLICT (student_id,date) DO UPDATE SET
         class_name=EXCLUDED.class_name,status=EXCLUDED.status,arrived_late=EXCLUDED.arrived_late,
         first_arrival_at=EXCLUDED.first_arrival_at,last_departure_at=EXCLUDED.last_departure_at,
-        late_minutes=EXCLUDED.late_minutes,missing_intervals=EXCLUDED.missing_intervals,
+        late_minutes=EXCLUDED.late_minutes,missing_intervals=EXCLUDED.missing_intervals,status_confirmed=true,
         timing_complete=EXCLUDED.timing_complete,last_movement_at=EXCLUDED.last_movement_at,updated_at=now()`,
     [student.id, session.date, session.class_name, next.status, next.arrived_late, arrival, departure, minutes, JSON.stringify(intervals), complete, movement]);
     await audit(db, session, student.id, old?.status || null, next.status);
@@ -85,7 +85,7 @@ async function applySession(db, session, roster) {
         }
     } else {
         const student = roster.find(s => s.id === ids[0]), old = previous.get(student.id);
-        if (!old) return { text: 'Avval shu sinfning to‘liq davomatini yuboring.', cancel: true };
+        if (!old || old.status_confirmed === false) return { text: 'Bu o‘quvchining oldingi holati aniqlanmagan. Sinfning jami/kelgan soni bilan yangi davomat yuboring.', cancel: true };
         const next = withTiming(old, nextStatus(old, p.kind), p.kind, p.eventAt || session.created_at || new Date(), session.date);
         if (p.kind === 'keldi' && old.status === 'absent') {
             const timing = arrivalTiming(next.first_arrival_at);
@@ -108,25 +108,114 @@ async function applySession(db, session, roster) {
         count(*) FILTER (WHERE status='absent')::int AS absent,
         count(*) FILTER (WHERE arrived_late)::int AS late
         FROM student_attendance a JOIN roster_students s ON s.id=a.student_id
-        WHERE a.class_name=$1 AND a.date=$2 AND s.active AND s.class_name=$1`, [session.class_name, session.date]);
+        WHERE a.class_name=$1 AND a.date=$2 AND a.status_confirmed AND s.active AND s.class_name=$1`, [session.class_name, session.date]);
     const { rows: absentRows } = await db.query(`SELECT s.full_name FROM student_attendance a
         JOIN roster_students s ON s.id=a.student_id WHERE a.class_name=$1 AND a.date=$2
         AND a.status='absent' AND s.active AND s.class_name=$1 ORDER BY s.full_name`, [session.class_name, session.date]);
     const t = totals[0];
+    const aggregate = (await db.query('SELECT * FROM attendance_logs WHERE class_name=$1 AND date=$2', [session.class_name, session.date])).rows[0];
+    if (aggregate?.source_event_at && Date.parse(aggregate.source_event_at) > Date.parse(p.eventAt)) {
+        throw new Error('Bu xabar eng oxirgi davomatdan oldin yuborilgan. Yangi xabar yuboring.');
+    }
+    if (aggregate && p.kind !== 'report') {
+        const old = previous.get(ids[0]);
+        const now = (await db.query('SELECT status FROM student_attendance WHERE student_id=$1 AND date=$2', [ids[0], session.date])).rows[0];
+        const counted = status => ['present', 'late'].includes(status) ? 1 : 0;
+        t.present = aggregate.present_count + counted(now.status) - counted(old.status);
+        if (t.present < 0 || t.present > aggregate.total_students) throw new Error('Sinf sonlarini yangi davomatda aniqlashtiring.');
+    }
     await db.query(`INSERT INTO attendance_logs (class_name,date,present_count,total_students,student_names,updated_at)
         VALUES ($1,$2,$3,$4,$5::jsonb,now()) ON CONFLICT (class_name,date) DO UPDATE SET
         present_count=EXCLUDED.present_count,total_students=EXCLUDED.total_students,
         student_names=EXCLUDED.student_names,updated_at=now()`,
-    [session.class_name, session.date, t.present, roster.length, JSON.stringify(absentRows.map(s => s.full_name))]);
+    [session.class_name, session.date, t.present, aggregate?.total_students ?? roster.length, JSON.stringify([...(absentRows.map(s => s.full_name)), ...(aggregate?.unresolved_names || [])])]);
+    await db.query('UPDATE attendance_logs SET source_event_at=$3,source_message_id=$4 WHERE class_name=$1 AND date=$2', [session.class_name, session.date, p.eventAt, session.message_id]);
     await db.query("UPDATE attendance_pending SET state='done' WHERE id=$1", [session.id]);
     const names = ids.map(id => roster.find(s => s.id === id).full_name);
-    return { text: `✅ ${session.class_name}: ${roster.length}/${t.present}\n` +
+    return { text: `✅ ${session.class_name}: ${aggregate?.total_students ?? roster.length}/${t.present}\n` +
         (p.kind === 'report' ? `Kelmaganlar: ${absentRows.map(s => s.full_name).join(', ') || 'yo‘q'}` : `${names[0]} ${p.kind}`) +
         timingText + `\nKech qolganlar: ${t.late}`,
-    notify: { className: session.class_name, total: roster.length, present: t.present } };
+    notify: { className: session.class_name, total: aggregate?.total_students ?? roster.length, present: t.present } };
+}
+
+export async function acceptClassReport(db, session, roster) {
+    const p = session.payload;
+    const aggregate = (await db.query('SELECT * FROM attendance_logs WHERE class_name=$1 AND date=$2', [session.class_name, session.date])).rows[0];
+    const { rows: current } = await db.query('SELECT * FROM student_attendance WHERE class_name=$1 AND date=$2', [session.class_name, session.date]);
+    if ((aggregate?.source_event_at && (Date.parse(aggregate.source_event_at) > Date.parse(p.eventAt) ||
+        (Date.parse(aggregate.source_event_at) === Date.parse(p.eventAt) && Number(aggregate.source_message_id) > Number(session.message_id)))) ||
+        current.some(row => row.last_movement_at && Date.parse(row.last_movement_at) > Date.parse(p.eventAt))) {
+        return { text: 'Bu xabar eng oxirgi davomatdan oldin yuborilgan. Yangi davomat saqlanib qoldi.', cancel: true };
+    }
+    const selected = new Map(), unresolved = [];
+    for (const name of p.names) {
+        const match = matchStudent(name, roster);
+        if (match.student) selected.set(match.student.id, match.student);
+        else unresolved.push(name);
+    }
+    const total = p.total ?? roster.length;
+    const absent = p.present !== undefined ? total - p.present : selected.size + new Set(unresolved).size;
+    const present = total - absent;
+    if (!Number.isInteger(total) || total < 1 || total > 60 || present < 0 || present > total) {
+        return { text: '❌ Jami/kelgan sonlari noto‘g‘ri. Davomatni qayta yuboring.', cancel: true };
+    }
+    // If the named absences contradict the explicit total, do not guess which name is wrong.
+    if (selected.size > absent) {
+        unresolved.push(...p.names);
+        selected.clear();
+    }
+    const complete = total === roster.length && !unresolved.length && selected.size === absent;
+    const previous = new Map(current.map(row => [row.student_id, row]));
+    if (!complete) {
+        for (const row of current) {
+            if (!selected.has(row.student_id) && row.status_confirmed) await audit(db, session, row.student_id, row.status, null);
+        }
+        await db.query('UPDATE student_attendance SET status_confirmed=false WHERE class_name=$1 AND date=$2 AND NOT (student_id=ANY($3::int[]))',
+            [session.class_name, session.date, [...selected.keys()]]);
+    }
+    for (const student of roster) {
+        const isAbsent = selected.has(student.id);
+        if (!complete && !isAbsent) continue;
+        const old = previous.get(student.id);
+        const next = isAbsent ? { status: 'absent', arrived_late: false }
+            : { status: old?.arrived_late ? 'late' : 'present', arrived_late: !!old?.arrived_late };
+        const action = isAbsent ? 'absent' : old && ['absent', 'left'].includes(old.status) ? 'keldi' : 'report';
+        await setStatus(db, session, student, old, withTiming(old, next, action, p.eventAt, session.date));
+    }
+    const unknown = [...new Set(unresolved)];
+    const names = [...selected.values()].map(student => student.full_name).concat(unknown);
+    await audit(db, session, null, aggregate ? `${aggregate.total_students}/${aggregate.present_count}` : null,
+        `${total}/${present}${complete ? '' : ' (ismlar to‘liq emas)'}`);
+    await db.query(`INSERT INTO attendance_logs (class_name,date,present_count,total_students,student_names,names_complete,unresolved_names,source_event_at,source_message_id,updated_at)
+        VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8,$9,now()) ON CONFLICT (class_name,date) DO UPDATE SET
+        present_count=EXCLUDED.present_count,total_students=EXCLUDED.total_students,student_names=EXCLUDED.student_names,
+        names_complete=EXCLUDED.names_complete,unresolved_names=EXCLUDED.unresolved_names,source_event_at=EXCLUDED.source_event_at,
+        source_message_id=EXCLUDED.source_message_id,updated_at=now()`,
+        [session.class_name, session.date, present, total, JSON.stringify(names), complete, JSON.stringify(unknown), p.eventAt, session.message_id]);
+    p.selected = [...selected.keys()];
+    p.unresolvedNames = unknown;
+    p.acceptedPresent = present;
+    p.namesComplete = complete;
+    p.awaitingNames = !complete;
+    await savePayload(db, session);
+    await db.query('UPDATE attendance_pending SET state=$2 WHERE id=$1', [session.id, complete ? 'done' : 'open']);
+    const missing = Math.max(0, absent - selected.size - unknown.length);
+    return { text: `✅ ${session.class_name}: ${total}/${present} — davomat saqlandi.\n` +
+        `Kelmaganlar: ${names.join(', ') || (absent ? 'ismlar hali berilmagan' : 'yo‘q')}` +
+        (complete ? '' : `\n⚠️ Ismlar to‘liq aniqlanmagan.${unknown.length ? '\nTopilmagan/noaniq: ' + unknown.join(', ') : ''}` +
+            (missing ? `\nYana ${missing} nafar o‘quvchining ismi kutilmoqda.` : '') +
+            (total !== roster.length ? `\nRasmiy ro‘yxat: ${roster.length}; yuborilgan jami: ${total}.` : '') +
+            '\nSonlar va topilgan o‘quvchilar qabul qilindi. Ismlarni keyin to‘g‘rilashingiz mumkin.'),
+        forceReply: !complete,
+        notify: { className: session.class_name, total, present } };
 }
 
 async function advance(db, session, roster) {
+    if (session.payload.kind === 'report') {
+        const result = await acceptClassReport(db, session, roster);
+        if (result.cancel) await db.query("UPDATE attendance_pending SET state='cancelled' WHERE id=$1", [session.id]);
+        return result;
+    }
     const p = session.payload;
     if (p.expectedAbsent !== undefined && p.expectedAbsent !== p.names.length) {
         p.awaitingNames = true;
@@ -193,7 +282,7 @@ export async function handleStudentMessage(ctx) {
         await lockClass(db, parsed.className, date);
         const roster = await rosterFor(db, parsed.className);
         if (!roster.length) return { text: `⚠️ ${parsed.className} uchun rasmiy o‘quvchilar ro‘yxati hali kiritilmagan.` };
-        if (parsed.total !== undefined && (parsed.total !== roster.length || parsed.present < 0 || parsed.present > parsed.total)) {
+        if (parsed.total !== undefined && (!Number.isInteger(parsed.total) || parsed.total < 1 || parsed.total > 60 || parsed.present < 0 || parsed.present > parsed.total)) {
             return { text: `❌ ${parsed.className} ro‘yxatida ${roster.length} o‘quvchi bor. Jami/kelgan sonlarini tekshirib qayta yuboring.` };
         }
         if (parsed.kind === 'report' && parsed.expectedAbsent === undefined && !parsed.names.length) {
@@ -202,6 +291,10 @@ export async function handleStudentMessage(ctx) {
         if (parsed.kind !== 'report') {
             const recorded = await db.query('SELECT student_id FROM student_attendance WHERE class_name=$1 AND date=$2', [parsed.className, date]);
             if (!recorded.rowCount) return { text: 'Avval shu sinfning to‘liq davomatini yuboring.' };
+        }
+        const latest = (await db.query('SELECT source_event_at FROM attendance_logs WHERE class_name=$1 AND date=$2', [parsed.className, date])).rows[0];
+        if (latest?.source_event_at && Date.parse(latest.source_event_at) > Date.parse(eventAt)) {
+            return { text: 'Bu xabar eng oxirgi davomatdan oldin yuborilgan. Yangi davomat saqlanib qoldi.' };
         }
         const duplicate = await db.query('SELECT id FROM attendance_pending WHERE chat_id=$1 AND message_id=$2', [ctx.chat.id, ctx.message.message_id]);
         if (duplicate.rowCount) return null;
@@ -220,6 +313,8 @@ export async function handleStudentMessage(ctx) {
 export async function verifyStudentSetup() {
     // Fail before polling starts if feature activation is incomplete.
     await pool.query('SELECT id FROM attendance_pending LIMIT 0');
+    await pool.query('SELECT status_confirmed FROM student_attendance LIMIT 0');
+    await pool.query('SELECT names_complete FROM attendance_logs LIMIT 0');
     await pool.query('SELECT student_id FROM student_attendance LIMIT 0');
     await pool.query('SELECT first_arrival_at,last_departure_at,late_minutes,missing_intervals,timing_complete,last_movement_at FROM student_attendance LIMIT 0');
     await pool.query('SELECT week_start FROM weekly_student_deliveries LIMIT 0');
@@ -272,7 +367,7 @@ async function handleNamesReply(ctx) {
     if (!rows.length) return false;
     const result = await resume(ctx, rows[0].id, session => {
         if (!session.payload.awaitingNames) return 'Ism tanlash uchun tugmalardan foydalaning.';
-        const names = ctx.message.text.split(/[\n,;]+/).map(n => n.replace(/^\s*[-•]\s*|^\s*\d+[.)]\s*/g, '').trim()).filter(Boolean);
+        const names = parseStudentMessage(`${session.class_name} kelmaganlar:\n${ctx.message.text}`).names;
         if (!names.length && session.payload.expectedAbsent !== 0) return 'Iltimos, o‘quvchilarning ismlarini yuboring.';
         if (names.length > 60 || names.some(n => n.length > 150)) return 'Ismlar ro‘yxati juda uzun.';
         if (session.payload.kind !== 'report' && names.length !== 1) return 'Bitta o‘quvchining ismini yuboring.';

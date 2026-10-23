@@ -49,6 +49,20 @@ test('duplicate full names are ambiguous', () => {
     assert.equal(matchStudent('Ali Karimov', [...roster, { id: 5, full_name: 'Ali Karimov' }]).kind, 'ambiguous');
 });
 
+test('surname plus initial uniquely matches within a class and never guesses a shared initial', () => {
+    const students = [{ id: 1, full_name: 'Nosirov Jobirxon' }, { id: 2, full_name: 'Nosirov Ibrohim' }];
+    assert.equal(matchStudent('Nosirov J', students).student.id, 1);
+    assert.equal(matchStudent('Nosirov I.', students).student.id, 2);
+    assert.equal(matchStudent('Носиров И', students).student.id, 2);
+    assert.equal(matchStudent('Nosirov A', students).kind, 'unknown');
+    assert.equal(matchStudent('Nosirov I', [...students, { id: 3, full_name: 'Nosirov Islom' }]).kind, 'ambiguous');
+});
+
+test('counts attached to a name and common absence suffixes are parsed', () => {
+    assert.equal(parseStudentMessage('1A 21/20Adhamov Horun').present, 20);
+    assert.deepEqual(parseStudentMessage('6B 19/18\nKelmaganlar:\nOdilov Saidabdurahmon kelmadi').names, ['Odilov Saidabdurahmon']);
+});
+
 test('attendance syntax keeps complete multi-word names together', () => {
     assert.deepEqual(parseStudentMessage('6А 21/18\nAli Karimov\nBobur\nOripov').names, ['Ali Karimov', 'Bobur', 'Oripov']);
     assert.equal(parseStudentMessage('6A 21/18').expectedAbsent, 3);

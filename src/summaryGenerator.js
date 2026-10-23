@@ -45,6 +45,8 @@ export async function generateFullSummary() {
     if (totalAbsent > 0) {
         summary += `\nKelmaganlar: ${totalAbsent}`;
     }
+    const partial = records.filter(record => record.names_complete === false).map(record => record.class_name);
+    if (partial.length) summary += `\n\n⚠️ Ismlar aniqlashtirilmoqda: ${partial.join(', ')}. Sinf sonlari qabul qilingan.`;
     
     return summary;
 }

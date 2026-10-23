@@ -46,7 +46,7 @@ export async function weeklyStudentReport(kind, { start, end } = weekRange(getTo
         jsonb_agg(jsonb_build_object('date',a.date::text,'missing_intervals',a.missing_intervals,'timing_complete',a.timing_complete)) AS timing_rows,
         array_agg(a.date::text ORDER BY a.date) AS dates
         FROM student_attendance a JOIN roster_students s ON s.id=a.student_id
-        WHERE a.date BETWEEN $1 AND $2 AND ${condition}
+        WHERE a.date BETWEEN $1 AND $2 AND a.status_confirmed AND ${condition}
         AND extract(isodow FROM a.date)<>7 AND NOT EXISTS (SELECT 1 FROM days_off d WHERE d.date=a.date)
         GROUP BY s.id,s.full_name ORDER BY days DESC,s.full_name,s.id LIMIT 10`, [start, end]);
     const title = kind === 'late' ? 'Haftalik kech qolganlar' : 'Haftalik kelmaganlar';
@@ -89,7 +89,7 @@ export async function studentHistory(studentId, days = 90) {
     const start = startDate.toISOString().slice(0, 10);
     const { rows } = await pool.query(`SELECT a.date::text,a.status,a.arrived_late,a.class_name,
         a.first_arrival_at,a.last_departure_at,a.late_minutes,a.missing_intervals,a.timing_complete
-        FROM student_attendance a WHERE student_id=$1 AND date BETWEEN $2 AND $3
+        FROM student_attendance a WHERE student_id=$1 AND status_confirmed AND date BETWEEN $2 AND $3
         AND extract(isodow FROM a.date)<>7 AND NOT EXISTS (SELECT 1 FROM days_off d WHERE d.date=a.date)
         ORDER BY date DESC`, [studentId, start, end]);
     const absent = rows.filter(r => r.status === 'absent'), late = rows.filter(r => r.arrived_late);

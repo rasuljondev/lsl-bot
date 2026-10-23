@@ -1,6 +1,6 @@
 {
   "name": "lsl-bot",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Telegram Attendance Bot for LSL School",
   "main": "src/bot.js",
   "type": "module",
