@@ -53,6 +53,8 @@ try {
             if (previous && new Date(previous.source_event_at || previous.updated_at) >= new Date(session.payload.eventAt)) {
                 return { className, status: 'already current', total: previous.total_students, present: previous.present_count };
             }
+            // Saved sessions predate the new parser (for example names followed by "kelmadi").
+            session.payload.names = parseStudentMessage(`${className} kelmaganlar:\n${session.payload.names.join('\n')}`).names;
             const roster = (await db.query(`SELECT s.* FROM roster_students s WHERE class_name=$1 AND active ORDER BY id`, [className])).rows;
             await db.query('SAVEPOINT recovery_preview');
             await db.query("UPDATE attendance_pending SET state='cancelled' WHERE class_name=$1 AND date=$2 AND state='open' AND id<>$3", [className, date, session.id]);
