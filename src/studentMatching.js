@@ -33,13 +33,24 @@ function variants(student) {
     return [student.full_name, ...(student.aliases || [])].map(normalizeName).filter(Boolean);
 }
 
+// Explicit school name variants only. A shared prefix does not imply identity.
+const equivalentNames = [
+    ['madina', 'madinabonu'],
+    ['bobur', 'boburmizo', 'boburmiroz', 'boburmirzo'],
+    ['mansur', 'mansurjon'],
+    ['ilyos', 'ilyosbek'],
+];
+function equivalentName(a, b) {
+    return a === b || equivalentNames.some(group => group.includes(a) && group.includes(b));
+}
+
 export function matchStudent(input, roster) {
     const key = normalizeName(input);
     if (!key) return { kind: 'unknown', candidates: [] };
     // A full exact name takes priority over token/alias matches.
     const full = roster.filter(s => normalizeName(s.full_name) === key);
     const exact = full.length ? full : roster.filter(s => variants(s).some(v =>
-        v === key || (!key.includes(' ') && v.split(' ').includes(key))));
+        v === key || (!key.includes(' ') && v.split(' ').some(word => equivalentName(word, key)))));
     if (exact.length === 1) return { kind: 'exact', student: exact[0] };
     if (exact.length > 1) return { kind: 'ambiguous', candidates: exact };
     const tokens = key.split(' ');
@@ -49,9 +60,9 @@ export function matchStudent(input, roster) {
             const words = value.split(' ');
             if (words.length !== 2) return false;
             return [0, 1].some(index => words[index] === tokens[0] &&
-                (words[1 - index] === tokens[1] || (tokens[1].length >= 4 && words[1 - index].startsWith(tokens[1])))) ||
+                equivalentName(words[1 - index], tokens[1])) ||
                 [0, 1].some(index => words[index] === tokens[1] &&
-                (words[1 - index] === tokens[0] || (tokens[0].length >= 4 && words[1 - index].startsWith(tokens[0]))));
+                equivalentName(words[1 - index], tokens[0]));
         }));
         if (reordered.length === 1) return { kind: 'name-parts', student: reordered[0] };
         if (reordered.length > 1) return { kind: 'ambiguous', candidates: reordered };

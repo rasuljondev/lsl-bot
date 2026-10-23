@@ -58,7 +58,7 @@ test('surname plus initial uniquely matches within a class and never guesses a s
     assert.equal(matchStudent('Nosirov I', [...students, { id: 3, full_name: 'Nosirov Islom' }]).kind, 'ambiguous');
 });
 
-test('given-name-first and unique shortened names require an exact anchor', () => {
+test('given-name-first entries use explicit equivalents and require an exact anchor', () => {
     const students = [
         { id: 1, full_name: 'Akramova Madinabonu' },
         { id: 2, full_name: 'Ismoilov Mansurjon' },
@@ -69,8 +69,25 @@ test('given-name-first and unique shortened names require an exact anchor', () =
     assert.equal(matchStudent('Mansur Ismoilov', students).student.id, 2);
     assert.equal(matchStudent('Sobitxon Nosirov', students).student.id, 3);
     assert.equal(matchStudent('Ilyos Kamoliddinov', students).student.id, 4);
-    assert.equal(matchStudent('Madina Akramova', [...students, { id: 5, full_name: 'Akramova Madinaxon' }]).kind, 'ambiguous');
+    assert.equal(matchStudent('Madina Akramova', [...students, { id: 5, full_name: 'Akramova Madina' }]).kind, 'ambiguous');
     assert.equal(matchStudent('Madina Akromova', students).student, undefined);
+});
+
+test('approved Madina and Bobur variants work alone or with a surname', () => {
+    const students = [{ id: 1, full_name: 'Akramova Madinabonu' }, { id: 2, full_name: 'Baxtiyorov Boburmiroz' }];
+    for (const name of ['Madina', 'Madina Akramova', 'Akramova Madina']) assert.equal(matchStudent(name, students).student.id, 1);
+    for (const name of ['Bobur', 'Boburmizo', 'Bobur Baxtiyorov', 'Baxtiyorov Boburmizo']) assert.equal(matchStudent(name, students).student.id, 2);
+    assert.equal(matchStudent('Madina', [...students, { id: 3, full_name: 'Other Madinabonu' }]).kind, 'ambiguous');
+});
+
+test('Muhammad and Muhammadali remain distinct even when only Muhammadali is in the class', () => {
+    const students = [{ id: 1, full_name: 'Ahmatov Muhammadali' }];
+    for (const name of ['Muhammad', 'Muhammad Ahmatov', 'Ahmatov Muhammad']) assert.equal(matchStudent(name, students).student, undefined);
+    const both = [...students, { id: 2, full_name: 'Ahmatov Muhammad' }];
+    assert.equal(matchStudent('Muhammad', both).student.id, 2);
+    assert.equal(matchStudent('Muhammadali', both).student.id, 1);
+    assert.equal(matchStudent('Muhammad Ahmatov', both).student.id, 2);
+    assert.equal(matchStudent('Bobur', [{ id: 3, full_name: 'Axmedov Boburshoh' }]).student, undefined);
 });
 
 test('counts attached to a name and common absence suffixes are parsed', () => {
