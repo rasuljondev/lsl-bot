@@ -41,7 +41,10 @@ not separate full names.
 
 Every uniquely matched absence is accepted independently. `Nosirov I` or
 `Nosirov J` matches surname plus given-name initial only when unique in that
-class. Wrong/ambiguous names are retained as unresolved and do not block other
+class. Given-name-first entries such as `Madina Akramova` can match a unique
+`Akramova Madinabonu`: one complete token must match exactly and the other must
+be exact or a prefix of at least four letters. Shared prefixes remain ambiguous.
+Wrong/ambiguous names are retained as unresolved and do not block other
 students or class totals. Reply to the bot's clarification prompt with the full
 corrected list, or send a new class report later. A count-only report is already
 saved while names are pending.

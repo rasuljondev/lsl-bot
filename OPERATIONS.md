@@ -60,3 +60,7 @@ were rejected before being saved; truncated names and exact Telegram timestamps
 are not invented. Log evidence has a null Telegram message ID. Recovery sends no
 Telegram notifications. Save its output with the database backup. Do not roll back
 to a version that ignores `status_confirmed` after accepting partial reports.
+
+After a matching-rule improvement, `--class 9B --resolve-pending` previews
+re-resolving identities for the same still-pending source report. It cannot
+replace a newer class report or movement. Review the preview before `--apply`.

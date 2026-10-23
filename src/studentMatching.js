@@ -43,6 +43,19 @@ export function matchStudent(input, roster) {
     if (exact.length === 1) return { kind: 'exact', student: exact[0] };
     if (exact.length > 1) return { kind: 'ambiguous', candidates: exact };
     const tokens = key.split(' ');
+    if (tokens.length === 2 && tokens.every(token => token.length > 1)) {
+        // Require an exact full-name token as an anchor; do not guess two misspelled words.
+        const reordered = roster.filter(student => variants(student).some(value => {
+            const words = value.split(' ');
+            if (words.length !== 2) return false;
+            return [0, 1].some(index => words[index] === tokens[0] &&
+                (words[1 - index] === tokens[1] || (tokens[1].length >= 4 && words[1 - index].startsWith(tokens[1])))) ||
+                [0, 1].some(index => words[index] === tokens[1] &&
+                (words[1 - index] === tokens[0] || (tokens[0].length >= 4 && words[1 - index].startsWith(tokens[0]))));
+        }));
+        if (reordered.length === 1) return { kind: 'name-parts', student: reordered[0] };
+        if (reordered.length > 1) return { kind: 'ambiguous', candidates: reordered };
+    }
     if (tokens.length === 2 && tokens.some(token => token.length === 1)) {
         const initial = tokens.find(token => token.length === 1);
         const surname = tokens.find(token => token.length > 1);

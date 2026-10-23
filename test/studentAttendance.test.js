@@ -454,3 +454,27 @@ test('stale class reports cannot replace newer accepted counts or cancel their c
     assert.equal((await run('SELECT present_count FROM attendance_logs')).rows[0].present_count, 1);
     assert.equal((await openSession()).id, session.id);
 });
+
+test('a movement never republishes an unconfirmed old absence as a known absent name', async () => {
+    await submit('6A kelmaganlar: Oripov');
+    await submit('6A 3/1\nKarimov\nUnknown');
+    await submit('6A Karimov keldi');
+    const row = (await run('SELECT * FROM attendance_logs')).rows[0];
+    assert.equal(row.present_count, 2);
+    assert.deepEqual(row.student_names, ['Unknown']);
+});
+
+test('given-name-first reports accept three known students even when the fourth name is misspelled', async () => {
+    await transaction(client => importRoster(client, [{ className: '9B', students: [
+        { id: 'm1', fullName: 'Akramova Madinabonu' }, { id: 'm2', fullName: 'Ismoilov Mansurjon' },
+        { id: 'm3', fullName: 'Nosirov Sobitxon' }, { id: 'm4', fullName: 'Kamoliddinov Ilyosbek' }
+    ] }], date));
+    await submit('9B 4/0\nMadina Akramova\nMansur Ismoilov\nIlyos Kamoldinov\nSobitxon Nosirov');
+    assert.equal((await run("SELECT * FROM student_attendance WHERE class_name='9B' AND status_confirmed")).rowCount, 3);
+    const row = (await run("SELECT * FROM attendance_logs WHERE class_name='9B'")).rows[0];
+    assert.equal(row.present_count, 0);
+    assert.deepEqual(row.unresolved_names, ['Ilyos Kamoldinov']);
+    await submit('9B 4/0\nMadina Akramova\nMansur Ismoilov\nIlyos Kamoliddinov\nSobitxon Nosirov');
+    assert.equal((await run("SELECT * FROM student_attendance WHERE class_name='9B' AND status_confirmed")).rowCount, 4);
+    assert.equal((await run("SELECT names_complete FROM attendance_logs WHERE class_name='9B'")).rows[0].names_complete, true);
+});

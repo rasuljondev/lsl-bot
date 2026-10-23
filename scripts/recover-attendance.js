@@ -9,6 +9,9 @@ import { tashkentClock } from '../src/attendanceTime.js';
 const option = name => process.argv[process.argv.indexOf(name) + 1];
 const date = process.argv.includes('--date') ? option('--date') : getTodayDate();
 const apply = process.argv.includes('--apply');
+const resolvePending = process.argv.includes('--resolve-pending');
+const classNames = process.argv.includes('--class') ? [option('--class')] : config.classes;
+if (classNames.some(name => !config.classes.includes(name))) throw new Error('Unknown class.');
 if (date !== getTodayDate()) throw new Error('Recovery is limited to today in Asia/Tashkent.');
 
 // Bot API has no chat-history endpoint. Logs can prove numeric counts rejected
@@ -40,7 +43,7 @@ if (process.argv.includes('--logfile')) {
 
 const results = [];
 try {
-    for (const className of config.classes) {
+    for (const className of classNames) {
         const result = await transaction(async db => {
             await lockClass(db, className, date);
             const stored = (await db.query(`SELECT * FROM attendance_pending WHERE class_name=$1 AND date=$2
@@ -50,7 +53,10 @@ try {
             if (!session) return { className, status: 'no captured report' };
             const previous = (await db.query('SELECT * FROM attendance_logs WHERE class_name=$1 AND date=$2', [className, date])).rows[0];
             // Preserve valid later submissions/movements, including pre-migration records.
-            if (previous && new Date(previous.source_event_at || previous.updated_at) >= new Date(session.payload.eventAt)) {
+            const samePendingReport = resolvePending && previous?.names_complete === false && session.message_id !== null &&
+                String(previous.source_message_id) === String(session.message_id) &&
+                Date.parse(previous.source_event_at) === Date.parse(session.payload.eventAt);
+            if (previous && !samePendingReport && new Date(previous.source_event_at || previous.updated_at) >= new Date(session.payload.eventAt)) {
                 return { className, status: 'already current', total: previous.total_students, present: previous.present_count };
             }
             // Saved sessions predate the new parser (for example names followed by "kelmadi").

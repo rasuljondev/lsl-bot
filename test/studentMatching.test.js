@@ -58,6 +58,21 @@ test('surname plus initial uniquely matches within a class and never guesses a s
     assert.equal(matchStudent('Nosirov I', [...students, { id: 3, full_name: 'Nosirov Islom' }]).kind, 'ambiguous');
 });
 
+test('given-name-first and unique shortened names require an exact anchor', () => {
+    const students = [
+        { id: 1, full_name: 'Akramova Madinabonu' },
+        { id: 2, full_name: 'Ismoilov Mansurjon' },
+        { id: 3, full_name: 'Nosirov Sobitxon' },
+        { id: 4, full_name: 'Kamoliddinov Ilyosbek' },
+    ];
+    assert.equal(matchStudent('Madina Akramova', students).student.id, 1);
+    assert.equal(matchStudent('Mansur Ismoilov', students).student.id, 2);
+    assert.equal(matchStudent('Sobitxon Nosirov', students).student.id, 3);
+    assert.equal(matchStudent('Ilyos Kamoliddinov', students).student.id, 4);
+    assert.equal(matchStudent('Madina Akramova', [...students, { id: 5, full_name: 'Akramova Madinaxon' }]).kind, 'ambiguous');
+    assert.equal(matchStudent('Madina Akromova', students).student, undefined);
+});
+
 test('counts attached to a name and common absence suffixes are parsed', () => {
     assert.equal(parseStudentMessage('1A 21/20Adhamov Horun').present, 20);
     assert.deepEqual(parseStudentMessage('6B 19/18\nKelmaganlar:\nOdilov Saidabdurahmon kelmadi').names, ['Odilov Saidabdurahmon']);

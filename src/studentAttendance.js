@@ -111,7 +111,7 @@ async function applySession(db, session, roster) {
         WHERE a.class_name=$1 AND a.date=$2 AND a.status_confirmed AND s.active AND s.class_name=$1`, [session.class_name, session.date]);
     const { rows: absentRows } = await db.query(`SELECT s.full_name FROM student_attendance a
         JOIN roster_students s ON s.id=a.student_id WHERE a.class_name=$1 AND a.date=$2
-        AND a.status='absent' AND s.active AND s.class_name=$1 ORDER BY s.full_name`, [session.class_name, session.date]);
+        AND a.status='absent' AND a.status_confirmed AND s.active AND s.class_name=$1 ORDER BY s.full_name`, [session.class_name, session.date]);
     const t = totals[0];
     const aggregate = (await db.query('SELECT * FROM attendance_logs WHERE class_name=$1 AND date=$2', [session.class_name, session.date])).rows[0];
     if (aggregate?.source_event_at && Date.parse(aggregate.source_event_at) > Date.parse(p.eventAt)) {
