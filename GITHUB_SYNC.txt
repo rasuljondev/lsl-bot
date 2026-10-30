@@ -1,0 +1,4 @@
+GitHub source backup: teamnovauzb/lsl-bot
+Local checkout: D:\Projects\teamnovauzb\lsl\lsl-bot
+Backup checkpoint: 2026-10-30 (Asia/Tashkent)
+This commit records existing local source work and Git ignore rules. It does not certify the pending application changes or deploy/build/submit an app. Private environment/configuration files, installed dependencies, caches, databases and build/recovery archives remain local. Environment-file copies are supplied separately to the owner.
