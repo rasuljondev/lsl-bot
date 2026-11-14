@@ -1,4 +1,4 @@
-import { pool, getTodayDate } from './database.js';
+import { pool, getTodayDate, isDayOff } from './database.js';
 import { weekRange, matchStudent, normalizeName } from './studentMatching.js';
 import { tashkentClock, missedMinutes } from './attendanceTime.js';
 
@@ -61,6 +61,8 @@ export async function weeklyStudentReport(kind, { start, end } = weekRange(getTo
 }
 
 export async function sendWeeklyStudentReport(bot, chatId) {
+    // Holidays and vacation Saturdays are days off: the bot stays silent.
+    if (await isDayOff()) return false;
     const range = weekRange(getTodayDate());
     const text = await weeklyStudentReport('absent', range) + '\n\n' + await weeklyStudentReport('late', range);
     // Include timing totals without exceeding Telegram's per-message limit.

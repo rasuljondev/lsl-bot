@@ -290,6 +290,15 @@ test('weekly delivery is durable, deduplicated and retried after a failure', asy
     assert.equal(await sendWeeklyStudentReport(bot, -2), true);
 });
 
+test('weekly report is not sent on a holiday or vacation Saturday', async () => {
+    let sent = 0;
+    const bot = { telegram: { sendMessage: async () => { sent++; } } };
+    await run('INSERT INTO days_off(date) VALUES ($1)', [date]);
+    assert.equal(await sendWeeklyStudentReport(bot, -3), false);
+    assert.equal(sent, 0);
+    assert.equal((await run('SELECT 1 FROM weekly_student_deliveries WHERE chat_id=-3')).rows.length, 0);
+});
+
 test('clean today clears individual and class records, cancels pending, keeps audit trail', async () => {
     await submit('6A kelmaganlar: Oripov');
     await submit('6A 3/2\nAli');
