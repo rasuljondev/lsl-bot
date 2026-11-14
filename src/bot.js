@@ -598,6 +598,12 @@ app.get('/health', async (req, res) => {
 });
 
 const WEBHOOK_WATCHDOG_INTERVAL_MS = 2 * 60 * 1000;
+const TOKEN_PLACEHOLDER = '<BOT_TOKEN>';
+
+/** Mask the bot token before text is written to logs. */
+export function redactToken(text) {
+    return String(text).split(config.botToken).join(TOKEN_PLACEHOLDER);
+}
 
 /**
  * In polling mode no webhook should ever be registered. If another deployment
@@ -627,7 +633,7 @@ export async function start() {
     if (config.studentAttendanceEnabled) await verifyStudentSetup();
     const server = app.listen(PORT, HOST, async () => {
         console.log(`Server running on ${HOST}:${PORT}`);
-        console.log(`Webhook URL: /webhook/${config.botToken}`);
+        console.log(`Webhook path: /webhook/${TOKEN_PLACEHOLDER}`);
 
         // Verify database connectivity on startup (non-fatal, just log)
         try {
@@ -646,7 +652,7 @@ export async function start() {
             // Remove trailing slash if present to avoid double slashes
             const baseUrl = config.webhookUrl.replace(/\/+$/, '');
             const webhookUrl = `${baseUrl}/webhook/${config.botToken}`;
-            console.log(`Setting webhook to: ${webhookUrl}`);
+            console.log(`Setting webhook to: ${redactToken(webhookUrl)}`);
         
             // Retry function for webhook setup
             const setupWebhook = async (retries = 3, delay = 5000) => {
@@ -657,7 +663,7 @@ export async function start() {
                     
                         // Verify webhook info
                         const info = await bot.telegram.getWebhookInfo();
-                        console.log('Webhook info:', JSON.stringify(info, null, 2));
+                        console.log('Webhook info:', redactToken(JSON.stringify(info, null, 2)));
                         return;
                     } catch (err) {
                         console.error(`Webhook setup attempt ${i + 1} failed:`, err.message);
@@ -667,7 +673,7 @@ export async function start() {
                         } else {
                             console.error('Failed to set webhook after', retries, 'attempts');
                             console.error('You can manually set it using:');
-                            console.error(`curl -X POST "https://api.telegram.org/bot${config.botToken}/setWebhook?url=${webhookUrl}"`);
+                            console.error(`curl -X POST "https://api.telegram.org/bot${TOKEN_PLACEHOLDER}/setWebhook?url=${redactToken(webhookUrl)}"`);
                         }
                     }
                 }

@@ -14,7 +14,7 @@ const { handleStudentMessage, handleStudentCallback, transaction, verifyStudentS
 const { importRoster } = await import('../src/rosterImport.js');
 const { weeklyStudentReport, studentHistory, sendWeeklyStudentReport, sendLongMessage, classRosterReport } = await import('../src/studentReports.js');
 const { cleanTodayData } = await import('../src/admin.js');
-const { bot, app, start } = await import('../src/bot.js');
+const { bot, app, start, redactToken } = await import('../src/bot.js');
 let db, messageId = 100;
 const date = '2026-10-17';
 const groups = [{ className: '6A', students: [
@@ -486,4 +486,10 @@ test('given-name-first reports accept three known students even when the fourth 
     await submit('9B 4/0\nMadina Akramova\nMansur Ismoilov\nIlyos Kamoliddinov\nSobitxon Nosirov');
     assert.equal((await run("SELECT * FROM student_attendance WHERE class_name='9B' AND status_confirmed")).rowCount, 4);
     assert.equal((await run("SELECT names_complete FROM attendance_logs WHERE class_name='9B'")).rows[0].names_complete, true);
+});
+
+test('bot token is masked before being written to logs', () => {
+    const url = 'https://example.org/webhook/test-only-token';
+    assert.equal(redactToken(url), 'https://example.org/webhook/<BOT_TOKEN>');
+    assert.equal(redactToken('{"url":"x/test-only-token","again":"test-only-token"}').includes('test-only-token'), false);
 });
