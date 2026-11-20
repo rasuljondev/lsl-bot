@@ -20,6 +20,8 @@ try {
     await db.exec(await fs.readFile(new URL('../sql/schema.sql', import.meta.url), 'utf8'));
     await db.exec(await fs.readFile(new URL('../sql/migrations/002_student_attendance.sql', import.meta.url), 'utf8'));
     await db.exec(await fs.readFile(new URL('../sql/migrations/003_attendance_minutes.sql', import.meta.url), 'utf8'));
+    await db.exec(await fs.readFile(new URL('../sql/migrations/004_partial_attendance.sql', import.meta.url), 'utf8'));
+    await db.exec(await fs.readFile(new URL('../sql/migrations/005_roster_changes.sql', import.meta.url), 'utf8'));
     await db.exec('BEGIN');
     await importRoster({ query }, data, getTodayDate());
     await db.exec('COMMIT');

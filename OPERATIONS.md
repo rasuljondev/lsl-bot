@@ -64,3 +64,14 @@ to a version that ignores `status_confirmed` after accepting partial reports.
 After a matching-rule improvement, `--class 9B --resolve-pending` previews
 re-resolving identities for the same still-pending source report. It cannot
 replace a newer class report or movement. Review the preview before `--apply`.
+
+## Editing student lists in the bot (1.3.0)
+
+The owner and one admin (`ROSTER_EDITOR_ID` in the shared `.env`) can open
+`📝 Ro‘yxatni tahrirlash` in the bot's private chat, pick a class, and add, remove
+(mark inactive, history kept) or rename students. Renames keep the old spelling as
+an alias. Every change is recorded in `roster_changes` (migration
+`005_roster_changes.sql`, applied before deploying 1.3.0). The last student of a
+class cannot be removed. After such edits the database is the source of truth: a
+later `roster:import` of an older JSON file would undo them, so export the current
+active roster from the database before any bulk import.

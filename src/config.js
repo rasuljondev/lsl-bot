@@ -2,12 +2,24 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+function parseRosterEditorId(value) {
+    if (!value || !value.trim()) return null;
+    const id = Number(value.trim());
+    if (!Number.isSafeInteger(id) || id <= 0) {
+        console.error('ROSTER_EDITOR_ID must be a positive Telegram user ID; student-list editing is limited to the owner.');
+        return null;
+    }
+    return id;
+}
+
 export const config = {
     botToken: process.env.BOT_TOKEN,
     databaseUrl: process.env.DATABASE_URL,
     webhookUrl: process.env.WEBHOOK_URL || '',
     port: parseInt(process.env.PORT || '3000', 10),
     studentAttendanceEnabled: process.env.STUDENT_ATTENDANCE_ENABLED === 'true',
+    // Telegram user ID of the one admin (besides the owner) allowed to edit student lists.
+    rosterEditorId: parseRosterEditorId(process.env.ROSTER_EDITOR_ID),
     timezone: 'Asia/Tashkent',
 
     // Fixed class list

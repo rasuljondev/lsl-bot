@@ -12,6 +12,7 @@ import { handleDayOffCommand, toggleDayOffToday } from './dayoff.js';
 import { handleStudentMessage, handleStudentCallback, verifyStudentSetup } from './studentAttendance.js';
 import { weeklyStudentReport, studentHistory, handleStudentHistory, sendLongMessage, classRosterReport } from './studentReports.js';
 import { weekRange } from './studentMatching.js';
+import { rosterEditButtons, handleRosterCallback, handleRosterInput } from './rosterEditor.js';
 
 export const bot = new Telegraf(config.botToken);
 export const app = express();
@@ -109,6 +110,7 @@ bot.command('start', async (ctx) => {
 🔧 Admin funksiyalar:`;
 
             const adminKeyboard = Markup.inlineKeyboard([
+                ...rosterEditButtons(userId),
                 ...studentReportButtons(),
                 [Markup.button.callback('📴 Bugun dam olish kuni (yoqish/o\'chirish)', 'admin_dayoff_toggle')],
                 [Markup.button.callback('🗑️ Bugungi ma\'lumotlarni tozalash', 'admin_cleandata')],
@@ -137,6 +139,7 @@ bot.command('start', async (ctx) => {
         if (isAuthorized) {
             // Show report buttons for authorized users
             const userKeyboard = Markup.inlineKeyboard([
+                ...rosterEditButtons(userId),
                 ...studentReportButtons(),
                 [Markup.button.callback('📊 Kunlik hisobot', 'user_report_daily')],
                 [Markup.button.callback('📈 Haftalik hisobot', 'user_report_weekly')],
@@ -147,7 +150,8 @@ bot.command('start', async (ctx) => {
         } else {
             // Show "Get Permission" button
             const keyboard = Markup.inlineKeyboard([
-                Markup.button.callback('🔐 Ruxsat olish', 'request_permission')
+                ...rosterEditButtons(userId),
+                [Markup.button.callback('🔐 Ruxsat olish', 'request_permission')]
             ]);
 
             await ctx.reply(welcomeMessage + '\n\n⚠️ Botdan foydalanish uchun ruxsat olishingiz kerak.', keyboard);
@@ -172,6 +176,11 @@ bot.on('callback_query', async (ctx) => {
         const data = ctx.callbackQuery.data;
         const userId = ctx.from.id;
 
+        if (data.startsWith('rx:')) {
+            // Student-list editing checks the owner/editor and private chat itself.
+            await handleRosterCallback(ctx);
+            return;
+        }
         if (config.studentAttendanceEnabled && data.startsWith('st:')) {
             // Sessions also verify chat, original submitter, date, roster and expiry.
             await handleStudentCallback(ctx);
@@ -449,6 +458,9 @@ bot.command('report', async (ctx) => {
 // Handle incoming messages
 bot.on('message', async (ctx) => {
     try {
+        // A typed name answering the student-list editor's question (private chat only).
+        if (await handleRosterInput(ctx)) return;
+
         const chatType = ctx.chat.type;
         const chatIdReceived = ctx.chat.id;
         const messageText = ctx.message?.text || '';

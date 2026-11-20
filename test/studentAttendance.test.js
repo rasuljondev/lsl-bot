@@ -15,6 +15,8 @@ const { importRoster } = await import('../src/rosterImport.js');
 const { weeklyStudentReport, studentHistory, sendWeeklyStudentReport, sendLongMessage, classRosterReport } = await import('../src/studentReports.js');
 const { cleanTodayData } = await import('../src/admin.js');
 const { bot, app, start, redactToken } = await import('../src/bot.js');
+const { canEditRoster, handleRosterCallback, handleRosterInput } = await import('../src/rosterEditor.js');
+const { matchStudent } = await import('../src/studentMatching.js');
 let db, messageId = 100;
 const date = '2026-10-17';
 const groups = [{ className: '6A', students: [
@@ -43,13 +45,16 @@ before(async () => {
     await db.exec(minutesMigration);
     await db.exec(await fs.readFile(new URL('../sql/migrations/004_partial_attendance.sql', import.meta.url), 'utf8'));
     await db.exec(await fs.readFile(new URL('../sql/migrations/004_partial_attendance.sql', import.meta.url), 'utf8'));
+    const rosterChanges = await fs.readFile(new URL('../sql/migrations/005_roster_changes.sql', import.meta.url), 'utf8');
+    await db.exec(rosterChanges);
+    await db.exec(rosterChanges); // additive migration is safe to rerun
     config.activeHours = { start: { hour: 0, minute: 0 }, end: { hour: 23, minute: 59 } };
 });
 after(async () => { await db.close(); await pool.end(); mock.timers.reset(); });
 beforeEach(async () => {
     mock.timers.setTime(new Date('2026-10-17T04:00:00Z').getTime());
     await db.exec(`TRUNCATE student_attendance,attendance_events,attendance_pending,weekly_student_deliveries,
-        roster_students,class_rosters,attendance_logs,authorized_users,days_off RESTART IDENTITY CASCADE`);
+        roster_changes,roster_students,class_rosters,attendance_logs,authorized_users,days_off RESTART IDENTITY CASCADE`);
     await transaction(client => importRoster(client, groups, date));
 });
 
@@ -492,4 +497,99 @@ test('bot token is masked before being written to logs', () => {
     const url = 'https://example.org/webhook/test-only-token';
     assert.equal(redactToken(url), 'https://example.org/webhook/<BOT_TOKEN>');
     assert.equal(redactToken('{"url":"x/test-only-token","again":"test-only-token"}').includes('test-only-token'), false);
+});
+
+// --- Student-list editing through bot buttons ---
+const EDITOR = 555;
+function privateCtx(actor, { text = '', data } = {}) {
+    const ctx = context(text, actor);
+    ctx.chat = { id: actor, type: 'private' };
+    if (data !== undefined) {
+        ctx.callbackQuery = { data, message: { message_id: 1 } };
+        delete ctx.message;
+    }
+    return ctx;
+}
+const press = async (actor, data) => { const ctx = privateCtx(actor, { data }); await handleRosterCallback(ctx); return ctx; };
+const type = async (actor, text) => { const ctx = privateCtx(actor, { text }); return { ctx, handled: await handleRosterInput(ctx) }; };
+const activeRoster = async () => (await run("SELECT * FROM roster_students WHERE class_name='6A' AND active ORDER BY id")).rows;
+const classTotal = async () => (await run("SELECT total_students FROM classes WHERE class_name='6A'")).rows[0].total_students;
+
+test('only the owner and the configured editor can edit student lists, in private chat', async () => {
+    config.rosterEditorId = EDITOR;
+    assert.equal(canEditRoster(config.ownerUserId), true);
+    assert.equal(canEditRoster(EDITOR), true);
+    assert.equal(canEditRoster(123), false);
+    const stranger = await press(123, 'rx:a:6A');
+    assert.match(stranger.replies[0].text, /faqat tayinlangan admin/);
+    assert.equal((await type(123, 'Olimov Sardor')).handled, false);
+    const inGroup = callback('rx:menu', EDITOR);
+    await handleRosterCallback(inGroup);
+    assert.match(inGroup.replies[0].text, /shaxsiy chatida/);
+    config.rosterEditorId = null;
+    assert.equal(canEditRoster(EDITOR), false);
+    assert.equal((await activeRoster()).length, 3);
+});
+
+test('editor adds a student with buttons; duplicates and invalid names are refused', async () => {
+    config.rosterEditorId = EDITOR;
+    const view = await press(EDITOR, 'rx:c:6A');
+    assert.match(view.replies[0].text, /6A — 3 o‘quvchi/);
+    await press(EDITOR, 'rx:a:6A');
+    for (const bad of ['ali karimov', 'Sardor', 'Olimov 2']) {
+        const { ctx, handled } = await type(EDITOR, bad);
+        assert.equal(handled, true);
+        assert.match(ctx.replies[0].text, /^⚠️/);
+    }
+    const { ctx } = await type(EDITOR, '  olimov   SARDOR ');
+    assert.match(ctx.replies[0].text, /✅ Olimov Sardor 6A sinfiga qo‘shildi/);
+    assert.equal((await activeRoster()).length, 4);
+    assert.equal(await classTotal(), 4);
+    assert.equal((await run("SELECT version FROM class_rosters WHERE class_name='6A'")).rows[0].version, 2);
+    const log = (await run('SELECT * FROM roster_changes')).rows;
+    assert.deepEqual(log.map(r => [r.action, r.new_name, Number(r.actor_id)]), [['add', 'Olimov Sardor', EDITOR]]);
+    assert.equal((await type(EDITOR, 'Another Name')).handled, false, 'input state ends after success');
+    config.rosterEditorId = null;
+});
+
+test('removing asks for confirmation, keeps history, and never empties a class', async () => {
+    config.rosterEditorId = EDITOR;
+    await submit('6A 3/2\nBobur Oripov');
+    const [ali, rahimov, bobur] = await activeRoster();
+    const ask = await press(EDITOR, `rx:dp:${bobur.id}`);
+    assert.match(ask.replies[0].text, /Bobur Oripov \(6A\) ro‘yxatdan chiqarilsinmi/);
+    assert.equal((await activeRoster()).length, 3, 'nothing changes before confirmation');
+    await press(EDITOR, `rx:dy:${bobur.id}`);
+    assert.deepEqual((await activeRoster()).map(s => s.full_name), ['Ali Karimov', 'Ali Rahimov']);
+    assert.equal(await classTotal(), 2);
+    assert.equal((await run('SELECT * FROM student_attendance WHERE student_id=$1', [bobur.id])).rows.length, 1);
+    const again = await press(EDITOR, `rx:dy:${bobur.id}`);
+    assert.match(again.replies[0].text, /topilmadi yoki allaqachon chiqarilgan/);
+    await press(EDITOR, `rx:dy:${rahimov.id}`);
+    const last = await press(EDITOR, `rx:dy:${ali.id}`);
+    assert.match(last.replies[0].text, /oxirgi o‘quvchini chiqarib bo‘lmaydi/);
+    assert.equal((await activeRoster()).length, 1);
+    config.rosterEditorId = null;
+});
+
+test('renaming keeps the old spelling recognisable; a removed student is restored with history', async () => {
+    config.rosterEditorId = EDITOR;
+    const bobur = (await activeRoster()).find(s => s.full_name === 'Bobur Oripov');
+    await press(EDITOR, `rx:ep:${bobur.id}`);
+    const clash = await type(EDITOR, 'Ali Karimov');
+    assert.match(clash.ctx.replies[0].text, /allaqachon bor/);
+    const { ctx } = await type(EDITOR, 'Oripov Boburjon');
+    assert.match(ctx.replies[0].text, /Bobur Oripov → Oripov Boburjon/);
+    const renamed = (await run('SELECT * FROM roster_students WHERE id=$1', [bobur.id])).rows[0];
+    assert.deepEqual(renamed.aliases, ['Bobur Oripov']);
+    assert.equal(matchStudent('Bobur Oripov', await activeRoster()).student.id, bobur.id);
+
+    await press(EDITOR, `rx:dy:${bobur.id}`);
+    await press(EDITOR, 'rx:a:6A');
+    const restored = await type(EDITOR, 'oripov boburjon');
+    assert.match(restored.ctx.replies[0].text, /qayta qo‘shildi/);
+    assert.equal((await activeRoster()).find(s => s.full_name === 'Oripov Boburjon').id, bobur.id);
+    assert.deepEqual((await run('SELECT action FROM roster_changes ORDER BY id')).rows.map(r => r.action),
+        ['rename', 'remove', 'reactivate']);
+    config.rosterEditorId = null;
 });

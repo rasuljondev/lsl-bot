@@ -318,6 +318,7 @@ export async function verifyStudentSetup() {
     await pool.query('SELECT student_id FROM student_attendance LIMIT 0');
     await pool.query('SELECT first_arrival_at,last_departure_at,late_minutes,missing_intervals,timing_complete,last_movement_at FROM student_attendance LIMIT 0');
     await pool.query('SELECT week_start FROM weekly_student_deliveries LIMIT 0');
+    await pool.query('SELECT id FROM roster_changes LIMIT 0');
     const { rows } = await pool.query(`SELECT r.class_name,count(s.id)::int AS students,c.total_students
         FROM class_rosters r JOIN classes c USING (class_name)
         LEFT JOIN roster_students s ON s.class_name=r.class_name AND s.active
